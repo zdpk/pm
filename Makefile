@@ -1,7 +1,7 @@
 # PM (Project Manager) Makefile
 # Provides convenient commands for building and running production and development versions
 
-.PHONY: build-prod build-dev run-prod run-dev clean install-prod install-dev help test
+.PHONY: build-prod build-dev run-prod run-dev clean install-prod install-dev help test docker-dev docker-test docker-build docker-clean docker-shell docker-logs docker-stop
 
 # Default target
 help:
@@ -20,6 +20,12 @@ help:
 	@echo "  make install-prod  - Install production binary"
 	@echo "  make install-dev   - Install development binary"
 	@echo ""
+	@echo "Docker Development:"
+	@echo "  make docker-dev    - Start Docker development environment"
+	@echo "  make docker-test   - Run tests in Docker"
+	@echo "  make docker-build  - Build Docker image"
+	@echo "  make docker-clean  - Clean Docker containers and volumes"
+	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean         - Clean build artifacts"
 	@echo "  make test          - Run tests"
@@ -28,6 +34,7 @@ help:
 	@echo "  make run-prod -- init         # Run 'pm init'"
 	@echo "  make run-dev -- init          # Run '_pm init' (development binary)"
 	@echo "  make run-prod -- add /path    # Run 'pm add /path'"
+	@echo "  make docker-dev               # Start containerized dev environment"
 
 # Build commands
 build-prod:
@@ -71,6 +78,40 @@ clean:
 	@echo "🧹 Cleaning build artifacts..."
 	cargo clean
 	@echo "✅ Clean complete"
+
+# Docker commands
+docker-build:
+	@echo "🐳 Building Docker image..."
+	docker-compose build pm-dev
+	@echo "✅ Docker image built"
+
+docker-dev:
+	@echo "🐳 Starting Docker development environment..."
+	docker-compose up -d pm-dev
+	@echo "✅ Development environment started"
+	@echo "💡 Connect with: docker-compose exec pm-dev bash"
+
+docker-shell:
+	@echo "🐳 Connecting to development container..."
+	docker-compose exec pm-dev bash
+
+docker-test:
+	@echo "🐳 Running tests in Docker..."
+	docker-compose run --rm pm-test
+
+docker-logs:
+	@echo "🐳 Showing development container logs..."
+	docker-compose logs -f pm-dev
+
+docker-stop:
+	@echo "🐳 Stopping Docker containers..."
+	docker-compose down
+
+docker-clean:
+	@echo "🐳 Cleaning Docker containers and volumes..."
+	docker-compose down -v --rmi local
+	docker system prune -f
+	@echo "✅ Docker cleanup complete"
 
 # Allow extra arguments to be passed to run commands
 %:
