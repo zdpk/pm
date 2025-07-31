@@ -9,8 +9,6 @@ services:
     volumes:
       # Mount source code for live development
       - .:/workspace
-      # Mount cargo registry to speed up builds
-      - cargo-registry:/usr/local/cargo/registry
       # Mount target directory to preserve builds
       - cargo-target:/workspace/target
       # Mount git config for development
@@ -29,24 +27,22 @@ services:
 
   # Service for running tests
   pm-test:
-    build: 
+    build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.test
     container_name: pm-test
     volumes:
       - .:/workspace
-      - cargo-registry:/usr/local/cargo/registry
-      - cargo-target-test:/workspace/target
+      - ./target:/workspace/target
     environment:
       - CARGO_TARGET_DIR=/workspace/target
       - RUST_LOG=trace
     working_dir: /workspace
-    command: cargo test
+    command: cargo test --workspace --frozen
     profiles:
       - test
 
 volumes:
-  cargo-registry:
   cargo-target:
   cargo-target-test:
   pm-config:

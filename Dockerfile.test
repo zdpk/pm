@@ -1,0 +1,21 @@
+# Dockerfile for running PM tests
+FROM rust:1.82-slim
+
+# Install system dependencies required for runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl-dev \
+    libgit2-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /workspace
+
+# Set up shell environment
+ENV PATH="/workspace/target/debug:/root/.cargo/bin:${PATH}"
+
+# Default command to run tests
+CMD ["cargo", "test", "--workspace"]
+
+# Default command to run tests
+CMD ["cargo", "test", "--workspace"]

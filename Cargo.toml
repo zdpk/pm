@@ -17,7 +17,6 @@ default = []
 name = "pm"
 path = "src/lib.rs"
 
-
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }

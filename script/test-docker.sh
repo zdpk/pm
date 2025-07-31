@@ -9,6 +9,13 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
+echo "📦 Vendoring dependencies..."
+cargo vendor
+
+echo "🧪 Compiling tests locally..."
+
+cargo test --no-run --workspace
+
 echo "🐳 Running tests in Docker container..."
 
 # Run tests in Docker

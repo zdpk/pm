@@ -1,5 +1,5 @@
-# Dockerfile for PM development environment
-FROM rust:1.80-slim
+# Dockerfile for PM development environment  
+FROM rust:1.82-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -26,8 +26,8 @@ WORKDIR /workspace
 # Copy dependency files
 COPY Cargo.toml Cargo.lock ./
 
-# Create dummy main.rs to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Create dummy main.rs and lib.rs to build dependencies
+RUN mkdir src && echo "fn main() {}" > src/main.rs && echo "pub fn dummy() {}" > src/lib.rs
 RUN cargo build --release && rm -rf src
 
 # Copy source code
