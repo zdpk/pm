@@ -4,7 +4,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const REPO_OWNER = 'zdpk'; 
-const REPO_NAME = 'project-manager'; 
+const REPO_NAME = 'pm'; 
 
 async function downloadBinary() {
     const packageJsonPath = path.join(__dirname, '..', 'package.json');

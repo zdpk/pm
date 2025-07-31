@@ -5,7 +5,7 @@ import fetch from 'node-fetch';
 import decompress, { File as DecompressFile } from 'decompress';
 
 const REPO_OWNER = 'zdpk';
-const REPO_NAME = 'project-manager';
+const REPO_NAME = 'pm';
 const BIN_DIR = path.join(__dirname, '..', 'bin');
 
 async function getLatestReleaseTag(): Promise<string> {
