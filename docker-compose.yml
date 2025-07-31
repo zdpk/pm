@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  pm-dev:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: pm-development
+    volumes:
+      # Mount source code for live development
+      - .:/workspace
+      # Mount cargo registry to speed up builds
+      - cargo-registry:/usr/local/cargo/registry
+      # Mount target directory to preserve builds
+      - cargo-target:/workspace/target
+      # Mount git config for development
+      - ~/.gitconfig:/home/developer/.gitconfig:ro
+      # Mount SSH keys for GitHub access
+      - ~/.ssh:/home/developer/.ssh:ro
+      # Mount PM config directory
+      - pm-config:/home/developer/.config/pm
+    environment:
+      - CARGO_TARGET_DIR=/workspace/target
+      - RUST_LOG=debug
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  # Service for running tests
+  pm-test:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: pm-test
+    volumes:
+      - .:/workspace
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target-test:/workspace/target
+    environment:
+      - CARGO_TARGET_DIR=/workspace/target
+      - RUST_LOG=trace
+    working_dir: /workspace
+    command: cargo test
+    profiles:
+      - test
+
+volumes:
+  cargo-registry:
+  cargo-target:
+  cargo-target-test:
+  pm-config:
