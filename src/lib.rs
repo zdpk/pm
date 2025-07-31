@@ -636,7 +636,7 @@ pub async fn handle_command(command: &Commands) -> anyhow::Result<()> {
             }
             BackupAction::Status => backup_cmd::handle_backup_status().await,
         },
-        Commands::Init { skip, replace } => init::handle_init(*skip, *replace, false).await,
+        Commands::Init { skip, replace } => init::handle_init(*skip, *replace).await,
         Commands::Status { format, quiet } => status::handle_status(format, *quiet).await,
         Commands::Extension { action } => {
             // Handle extension management commands

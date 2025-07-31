@@ -1,7 +1,7 @@
 # PM (Project Manager) Makefile
 # Provides convenient commands for building and running production and development versions
 
-.PHONY: build-prod build-dev run-prod run-dev clean install-prod install-dev help test docker-dev docker-test docker-build docker-clean docker-shell docker-logs docker-stop
+.PHONY: build-prod run-prod clean install-prod help test docker-dev docker-test docker-build docker-clean docker-shell docker-logs docker-stop
 
 # Default target
 help:
@@ -9,16 +9,13 @@ help:
 	@echo ""
 	@echo "Building:"
 	@echo "  make build-prod    - Build production binary (pm)"
-	@echo "  make build-dev     - Build development binary (_pm)"
-	@echo "  make build-all     - Build both binaries"
+	@echo "  make build-all     - Build all binaries"
 	@echo ""
 	@echo "Running:"
 	@echo "  make run-prod      - Run production binary"
-	@echo "  make run-dev       - Run development binary"
 	@echo ""
 	@echo "Installing:"
 	@echo "  make install-prod  - Install production binary"
-	@echo "  make install-dev   - Install development binary"
 	@echo ""
 	@echo "Docker Development:"
 	@echo "  make docker-dev    - Start Docker development environment"
@@ -32,7 +29,6 @@ help:
 	@echo ""
 	@echo "Examples:"
 	@echo "  make run-prod -- init         # Run 'pm init'"
-	@echo "  make run-dev -- init          # Run '_pm init' (development binary)"
 	@echo "  make run-prod -- add /path    # Run 'pm add /path'"
 	@echo "  make docker-dev               # Start containerized dev environment"
 
@@ -42,32 +38,18 @@ build-prod:
 	cargo build --bin pm --release
 	@echo "✅ Production binary built: target/release/pm"
 
-build-dev:
-	@echo "🔨 Building development binary..."
-	cargo build --bin _pm
-	@echo "✅ Development binary built: target/debug/_pm"
-
-build-all: build-prod build-dev
+build-all: build-prod
 
 # Run commands
 run-prod:
 	@echo "🚀 Running production binary..."
 	cargo run --bin pm -- $(filter-out $@,$(MAKECMDGOALS))
 
-run-dev:
-	@echo "🚀 Running development binary..."
-	cargo run --bin _pm -- $(filter-out $@,$(MAKECMDGOALS))
-
 # Install commands
 install-prod:
 	@echo "📦 Installing production binary..."
 	cargo install --path . --bin pm --force
 	@echo "✅ Production binary installed as 'pm'"
-
-install-dev:
-	@echo "📦 Installing development binary..."
-	cargo install --path . --bin _pm --force
-	@echo "✅ Development binary installed as '_pm'"
 
 # Test and maintenance
 test:

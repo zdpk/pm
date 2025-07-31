@@ -1,0 +1,24 @@
+# Cargo configuration for PM development
+# Provides Docker-integrated development workflow
+
+[alias]
+# Docker-based development commands
+dev = "run --bin cargo-dev --"
+dev-shell = "run --bin cargo-dev -- shell"
+dev-test = "run --bin cargo-dev -- test"  
+dev-build = "run --bin cargo-dev -- build"
+dev-init = "run --bin cargo-dev -- init"
+dev-clean = "run --bin cargo-dev -- clean"
+
+# Traditional commands (fallback)
+prod = "run --bin pm --"
+debug = "run --bin _pm --"
+
+# Utility aliases
+check-all = "check --workspace --all-targets --all-features"
+test-all = "test --workspace --all-targets --all-features"
+lint = "clippy --workspace --all-targets --all-features -- -D warnings"
+
+[target.x86_64-unknown-linux-gnu]
+# Container-specific optimizations
+rustflags = ["-C", "target-cpu=native"]
