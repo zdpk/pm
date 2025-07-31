@@ -512,46 +512,80 @@ project-manager/
 
 ## Development
 
-### Running from Source
+### 🐳 Docker Development (Recommended)
+
+For a consistent, isolated development environment:
 
 ```bash
-# Run in development mode
-cargo run -- <command>
+# Quick start - one command setup
+./script/dev-setup.sh
+
+# Or use cargo integration:
+cargo dev              # Start Docker development environment
+cargo dev shell        # Connect to container
+cargo dev pm init      # Initialize PM in container
+cargo dev test         # Run tests in container
+cargo dev build        # Build in container
+```
+
+**Benefits:**
+- ✅ Isolated environment (no conflicts with system PM)
+- ✅ Consistent across different machines
+- ✅ Pre-configured with all dependencies
+- ✅ Single `pm` binary (no `pm`/`_pm` confusion)
+
+See [Docker Development Guide](docs/DOCKER_DEVELOPMENT.md) for complete details.
+
+### Traditional Development
+
+#### Running from Source
+
+```bash
+# Run PM binary
+cargo run --bin pm -- <command>
 
 # Examples
-cargo run -- init
-cargo run -- ls --detailed
-cargo run -- add . --tags rust,cli
+cargo run --bin pm -- init
+cargo run --bin pm -- ls --detailed
+cargo run --bin pm -- add . --tags rust,cli
 ```
 
-### Testing
+#### Testing
 
 ```bash
-# Run tests
-cargo test
+# Docker environment (recommended)
+cargo dev test                    # Run tests in container
 
-# Run tests with output
-cargo test -- --nocapture
-
-# Run specific test
-cargo test test_name
+# Traditional environment
+cargo test                        # Run all tests
+cargo test -- --nocapture         # Run with output
+cargo test test_name               # Run specific test
 ```
 
-### Building
+#### Building
 
 ```bash
-# Debug build
-cargo build
+# Docker environment (recommended)
+cargo dev build                   # Build in container
+cargo dev fmt                     # Format code in container
+cargo dev clippy                  # Run lints in container
 
-# Optimized release build
-cargo build --release
-
-# Check code formatting
-cargo fmt --all -- --check
-
-# Run clippy lints
-cargo clippy --all-targets --all-features -- -D warnings
+# Traditional environment
+cargo build                       # Debug build
+cargo build --release             # Release build
+cargo fmt --all -- --check        # Check formatting
+cargo clippy --all-targets --all-features -- -D warnings   # Run clippy
 ```
+
+#### Development Workflow Comparison
+
+| Task | Docker Method | Traditional Method |
+|------|---------------|-------------------|
+| **Setup** | `./script/dev-setup.sh` | Manual dependency install |
+| **Initialize** | `cargo dev pm init` | `cargo run --bin pm -- init` |
+| **Test** | `cargo dev test` | `cargo test` |
+| **Build** | `cargo dev build` | `cargo build --release` |
+| **Config File** | Single `config.yml` | Single `config.yml` |
 
 ## Troubleshooting
 

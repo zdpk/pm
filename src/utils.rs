@@ -3,27 +3,9 @@ use chrono::{DateTime, Utc};
 use std::path::Path;
 use std::process::Command;
 
-/// Detect if we're running in development mode based on binary name
-pub fn is_dev_mode() -> bool {
-    std::env::args()
-        .next()
-        .map(|arg0| {
-            std::path::Path::new(&arg0)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(|name| name == "_pm")
-                .unwrap_or(false)
-        })
-        .unwrap_or(false)
-}
-
-/// Get the appropriate binary name for help messages
+/// Get the binary name for help messages (always "pm" now)
 pub fn get_binary_name() -> &'static str {
-    if is_dev_mode() {
-        "_pm"
-    } else {
-        "pm"
-    }
+    "pm"
 }
 
 pub fn get_last_git_commit_time(path: &Path) -> Result<Option<DateTime<Utc>>> {

@@ -21,8 +21,8 @@ name = "pm"
 path = "src/bin/pm.rs"
 
 [[bin]]
-name = "_pm"
-path = "src/bin/_pm.rs"
+name = "cargo-dev"
+path = "src/bin/cargo-dev.rs"
 
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }

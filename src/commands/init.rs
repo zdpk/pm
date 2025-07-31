@@ -19,7 +19,6 @@ enum ConflictAction {
 pub async fn handle_init(
     skip: bool,
     replace: bool,
-    dev: bool,
 ) -> Result<()> {
     let config_path = get_config_path()?;
     let mut backup_entry = None;
@@ -120,14 +119,9 @@ pub async fn handle_init(
     // Show configuration file path info
     println!("📄 Configuration file: {}", config_path.display());
     
-    // Step 5: Shell integration setup with backup support (skip in dev mode)
+    // Step 5: Shell integration setup with backup support
     println!();
-    let shell_backup = if utils::is_dev_mode() {
-        println!("🔧 Skipping production shell integration (development mode)");
-        None
-    } else {
-        setup_shell_integration_with_backup(skip, replace).await?
-    };
+    let shell_backup = setup_shell_integration_with_backup(skip, replace).await?;
     
     // Step 6: Save backup metadata if we created any backups
     if let Some(mut backup) = backup_entry {
@@ -139,13 +133,7 @@ pub async fn handle_init(
         println!("💾 Backup created successfully");
     }
     
-    // Step 7: Development mode setup (for _pm binary)
-    if utils::is_dev_mode() {
-        setup_dev_environment().await?;
-    }
-    
-
-    
+    // Step 7: Complete setup
     let binary_name = utils::get_binary_name();
     println!("\n📖 Use '{} --help' to see all available commands", binary_name);
 
@@ -189,13 +177,4 @@ async fn setup_shell_integration_with_backup(
     }
 }
 
-/// Setup development environment
-async fn setup_dev_environment() -> Result<()> {
-    // Setup development shell integration for _pm
-    if let Err(e) = shell_integration::setup_dev_shell_integration().await {
-        display_warning(&format!("Failed to setup development shell integration: {}", e));
-    }
-    
-    Ok(())
-}
 

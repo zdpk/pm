@@ -90,31 +90,12 @@ pub fn get_config_dir() -> Result<PathBuf> {
     let home_dir = dirs::home_dir().context("Failed to find home directory")?;
     let config_dir = home_dir.join(CONFIG_DIR_NAME);
     
-    // Use different subdirectory for dev mode (_pm binary)
-    let subdir_name = if is_dev_mode() {
-        "_pm"
-    } else {
-        CONFIG_SUBDIR_NAME
-    };
-    
-    let pm_dir = config_dir.join(subdir_name);
+    // Always use the standard subdirectory (no more dev mode)
+    let pm_dir = config_dir.join(CONFIG_SUBDIR_NAME);
     
     Ok(pm_dir)
 }
 
-/// Detect if running in development mode based on binary name
-fn is_dev_mode() -> bool {
-    std::env::args()
-        .next()
-        .map(|path| {
-            std::path::Path::new(&path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(|name| name.starts_with("_pm") || name.contains("_pm"))
-                .unwrap_or(false)
-        })
-        .unwrap_or(false)
-}
 
 pub fn get_schema_path() -> Result<PathBuf> {
     let config_dir = get_config_dir()?;
