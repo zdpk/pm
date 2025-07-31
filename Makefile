@@ -19,6 +19,7 @@ help:
 	@echo ""
 	@echo "Docker Development:"
 	@echo "  make docker-dev    - Start Docker development environment"
+	@echo "  make docker-shell  - Connect to development container"
 	@echo "  make docker-test   - Run tests in Docker"
 	@echo "  make docker-build  - Build Docker image"
 	@echo "  make docker-clean  - Clean Docker containers and volumes"
@@ -30,7 +31,8 @@ help:
 	@echo "Examples:"
 	@echo "  make run-prod -- init         # Run 'pm init'"
 	@echo "  make run-prod -- add /path    # Run 'pm add /path'"
-	@echo "  make docker-dev               # Start containerized dev environment"
+	@echo "  make docker-shell             # Connect to dev container"
+	@echo "  ./script/test-docker.sh       # Run tests in Docker"
 
 # Build commands
 build-prod:
@@ -74,12 +76,10 @@ docker-dev:
 	@echo "💡 Connect with: docker-compose exec pm-dev bash"
 
 docker-shell:
-	@echo "🐳 Connecting to development container..."
-	docker-compose exec pm-dev bash
+	@./script/dev-shell.sh
 
 docker-test:
-	@echo "🐳 Running tests in Docker..."
-	docker-compose run --rm pm-test
+	@./script/test-docker.sh
 
 docker-logs:
 	@echo "🐳 Showing development container logs..."

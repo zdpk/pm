@@ -520,12 +520,11 @@ For a consistent, isolated development environment:
 # Quick start - one command setup
 ./script/dev-setup.sh
 
-# Or use cargo integration:
-cargo dev              # Start Docker development environment
-cargo dev shell        # Connect to container
-cargo dev pm init      # Initialize PM in container
-cargo dev test         # Run tests in container
-cargo dev build        # Build in container
+# Or use shell scripts directly:
+make docker-shell       # Connect to development container
+./script/test-docker.sh  # Run tests in container
+./script/dev-build.sh    # Build in container
+./script/dev-init.sh     # Initialize PM in container
 ```
 
 **Benefits:**
@@ -554,7 +553,7 @@ cargo run --bin pm -- add . --tags rust,cli
 
 ```bash
 # Docker environment (recommended)
-cargo dev test                    # Run tests in container
+./script/test-docker.sh            # Run tests in container
 
 # Traditional environment
 cargo test                        # Run all tests
@@ -566,9 +565,8 @@ cargo test test_name               # Run specific test
 
 ```bash
 # Docker environment (recommended)
-cargo dev build                   # Build in container
-cargo dev fmt                     # Format code in container
-cargo dev clippy                  # Run lints in container
+./script/dev-build.sh              # Build in container
+make docker-shell                  # Connect to container for manual commands
 
 # Traditional environment
 cargo build                       # Debug build
@@ -582,10 +580,10 @@ cargo clippy --all-targets --all-features -- -D warnings   # Run clippy
 | Task | Docker Method | Traditional Method |
 |------|---------------|-------------------|
 | **Setup** | `./script/dev-setup.sh` | Manual dependency install |
-| **Initialize** | `cargo dev pm init` | `cargo run --bin pm -- init` |
-| **Test** | `cargo dev test` | `cargo test` |
-| **Build** | `cargo dev build` | `cargo build --release` |
-| **Config File** | Single `config.yml` | Single `config.yml` |
+| **Initialize** | `./script/dev-init.sh` | `cargo run -- init` |
+| **Test** | `./script/test-docker.sh` | `cargo test` |
+| **Build** | `./script/dev-build.sh` | `cargo build --release` |
+| **Shell Access** | `make docker-shell` | Local terminal |
 
 ## Troubleshooting
 
