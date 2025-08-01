@@ -101,7 +101,7 @@ runs:
       shell: bash
       working-directory: ${{ inputs.npm_directory }}
       env:
-        NODE_AUTH_TOKEN: ${{ inputs.npm_token }}
+        NODE_AUTH_TOKEN: ${{ inputs.token }}
       run: |
         echo "Publishing package to NPM..."
         

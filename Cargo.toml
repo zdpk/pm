@@ -1,6 +1,6 @@
 [package]
 name = "pm"
-version = "0.0.1"
+version = "0.2.0"
 edition = "2021"
 description = "A fast, terminal-based project management CLI tool"
 license = "MIT"

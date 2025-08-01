@@ -22,13 +22,15 @@
   "author": "zdpk",
   "license": "MIT",
   "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zdpk/pm.git"
+  },
   "devDependencies": {
     "@types/node": "^24.1.0",
-    "typescript": "^5.8.3",
-    "@types/decompress": "^4.2.4"
+    "typescript": "^5.8.3"
   },
   "dependencies": {
-    "decompress": "^4.2.1",
     "node-fetch": "^3.3.2"
   },
   "files": [
