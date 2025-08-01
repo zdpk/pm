@@ -68,18 +68,20 @@ jobs:
       run: cargo audit
 
   docker-e2e-test:
-    name: Docker E2E Tests
+    name: Docker E2E Tests  
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Install Docker Compose
+    - name: Build release binary
+      run: cargo build --release
+    - name: Run E2E tests in Docker
       run: |
-        sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        sudo chmod +x /usr/local/bin/docker-compose
-    - name: Run Docker E2E tests
-      run: ./script/test-docker.sh
+        docker build -f Dockerfile.manual -t pm-manual .
+        docker run --rm -v pm-e2e-config:/home/pmuser/.config/pm pm-manual run-e2e-tests.sh
     - name: Cleanup Docker resources
-      run: docker-compose down -v
+      run: |
+        docker rmi pm-manual 2>/dev/null || true
+        docker volume rm pm-e2e-config 2>/dev/null || true
       if: always()
 
   coverage:

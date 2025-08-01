@@ -1,137 +1,109 @@
-# Docker Development Environment
+# Manual Testing with Docker
 
-PM provides a Docker-based development environment that eliminates the need for separate `pm` and `_pm` binaries with different configuration paths.
+PM provides a lightweight Docker container for manual testing that allows you to test the PM binary in an isolated environment without affecting your local setup.
 
 ## Quick Start
 
 ```bash
-# Build and start development environment
-make docker-dev
-
-# Connect to the container
-make docker-shell
+# Build binary and start manual testing container
+make docker-manual-quick
 
 # Inside the container, PM is ready to use
+pm --version
 pm init
-pm add /workspace
+pm add /tmp/test-project
 pm list
 ```
 
 ## Benefits
 
 ### 🔒 **Environment Isolation**
-- Clean separation between development and production
-- No more confusion between `pm` and `_pm` binaries
-- Isolated configuration files
+- Clean separation from your local PM installation
+- Independent configuration and data
+- Safe testing without side effects
 
-### 🚀 **Consistent Development**
-- Same environment for all developers
-- Matches CI/CD environment
-- Pre-configured with all dependencies
+### 🚀 **Lightweight & Fast**
+- Minimal container with only runtime dependencies
+- Quick startup time
+- Small disk footprint
 
-### 🛠️ **Simplified Workflow**
-- Single `pm` binary in container
-- No need to manage multiple config files
-- Easy testing without affecting local setup
+### 🛠️ **Simple Workflow**
+- Single command to build and test
+- Pre-built binary copied from host
+- Easy cleanup when done
 
 ## Available Commands
 
-### Development Environment
+### Manual Testing
 ```bash
-make docker-build    # Build Docker image
-make docker-dev      # Start development container
-make docker-shell    # Connect to running container
-make docker-stop     # Stop containers
-make docker-clean    # Clean up containers and volumes
-```
-
-### Testing
-```bash
-make docker-test     # Run tests in container
-make docker-logs     # View container logs
+make docker-manual-build    # Build binary and Docker image
+make docker-manual          # Start manual testing container  
+make docker-manual-quick    # Build + start in one command
+make docker-manual-clean    # Clean up container and volumes
 ```
 
 ## Development Workflow
 
-### 1. Initial Setup
+### 1. Quick Testing
 ```bash
-# Clone repository
-git clone https://github.com/zdpk/pm.git
-cd pm
+# One command to build and test
+make docker-manual-quick
 
-# Start development environment
-make docker-dev
-make docker-shell
-```
-
-### 2. Inside Container
-```bash
-# Initialize PM (creates /home/developer/.config/pm/config.yml)
+# Inside container, test PM functionality
+pm --version
 pm init
-
-# Add test project
-pm add /workspace
-
-# Test functionality
+pm add /tmp/test-project
 pm list
-pm config show
 ```
 
-### 3. Code Changes
-- Edit files on host machine
-- Changes are automatically synced to container via volume mount
-- Rebuild and test inside container:
-
+### 2. Iterative Development
 ```bash
-# Inside container
+# Make code changes on host
+# Build new binary
 cargo build --release
-./target/release/pm --version
+
+# Rebuild container with new binary
+make docker-manual-build
+
+# Test the changes
+make docker-manual
 ```
 
-### 4. Testing
+### 3. Cleanup
 ```bash
-# Run tests in container
-make docker-test
-
-# Or run specific tests inside container
-cargo test config::tests::test_config_creation
+# Remove container and volumes when done
+make docker-manual-clean
 ```
 
 ## Container Details
 
 ### Image Base
-- **Base**: `rust:1.80-slim`
-- **User**: `developer` (non-root)
-- **Working Directory**: `/workspace`
+- **Base**: `debian:bookworm-slim`
+- **User**: `pmuser` (non-root)
+- **Working Directory**: `/home/pmuser`
 
 ### Installed Tools
-- Rust toolchain (1.80)
-- Git
-- GitHub CLI (`gh`)
-- Build essentials (cmake, pkg-config, etc.)
+- Git (for repository operations)
+- curl (for downloads)
+- ca-certificates (for HTTPS)
+
+### Binary Location
+- **PM Binary**: `/usr/local/bin/pm`
+- **E2E Script**: `/usr/local/bin/run-e2e-tests.sh`
 
 ### Volume Mounts
-- **Source Code**: `.` → `/workspace` (live sync)
-- **Cargo Registry**: Cached for faster builds
-- **Target Directory**: Cached builds
-- **Git Config**: `~/.gitconfig` → `/home/developer/.gitconfig` (read-only)
-- **SSH Keys**: `~/.ssh` → `/home/developer/.ssh` (read-only)
-- **PM Config**: Persistent storage for PM configuration
+- **PM Config**: `pm-manual-config:/home/pmuser/.config/pm` (persistent)
 
-### Environment Variables
-- `CARGO_TARGET_DIR=/workspace/target`
-- `RUST_LOG=debug`
+## Comparison: Manual Testing vs Local Development
 
-## Comparison: Docker vs Dual Binary
-
-| Aspect | Dual Binary (`pm`/`_pm`) | Docker Development |
-|--------|--------------------------|-------------------|
-| **Setup Complexity** | Medium (manage 2 binaries) | Low (single command) |
-| **Config Management** | Complex (2 config files) | Simple (isolated) |
+| Aspect | Local Development | Docker Manual Testing |
+|--------|------------------|----------------------|
+| **Setup Complexity** | None (native) | Low (single command) |
+| **Config Management** | Uses local config | Isolated config |
 | **Environment Consistency** | Host-dependent | Containerized |
-| **Development Speed** | Fast (native) | Fast (cached builds) |
-| **Isolation** | Poor (shared host) | Excellent |
-| **CI/CD Alignment** | Manual sync | Automatic |
+| **Development Speed** | Fastest (native) | Fast (cached builds) |
+| **Isolation** | None (shared host) | Excellent |
+| **CI/CD Alignment** | Manual verification | Automatic alignment |
 
 ## Troubleshooting
 
@@ -139,113 +111,104 @@ cargo test config::tests::test_config_creation
 ```bash
 # Check Docker status
 docker --version
-docker-compose --version
 
 # Rebuild image
-make docker-clean
-make docker-build
+make docker-manual-clean
+make docker-manual-build
 ```
 
 ### Permission Issues
 ```bash
-# Container runs as 'developer' user (UID 1000)
-# If you have permission issues, check volume mounts
-ls -la ~/.ssh
-ls -la ~/.gitconfig
+# Container runs as 'pmuser' user (UID 1000)
+# Check binary permissions
+ls -la target/release/pm
 ```
 
 ### Build Failures
 ```bash
 # Clean and rebuild
-make docker-clean
-make docker-build
-
-# Check logs
-make docker-logs
+make docker-manual-clean
+cargo build --release
+make docker-manual-build
 ```
 
-### Network Issues
+### Binary Not Found
 ```bash
-# GitHub CLI authentication inside container
-docker-compose exec pm-dev gh auth login
+# Ensure binary exists before building container
+cargo build --release
+ls -la target/release/pm
 ```
 
-## Migration from Dual Binary Setup
+## Using Manual Testing Container
 
-If you're currently using `pm`/`_pm` setup:
+The manual testing container provides an isolated environment for testing PM functionality:
 
-### 1. Backup Current Config
+### 1. Build and Start Container
 ```bash
-# Backup existing configs
-cp ~/.config/pm/config.yml ~/.config/pm/config-prod-backup.yml
-cp ~/.config/pm/config-dev.yml ~/.config/pm/config-dev-backup.yml
+# Build release binary and start container
+make docker-manual-quick
 ```
 
-### 2. Start Fresh with Docker
+### 2. Test PM Functionality
 ```bash
-make docker-dev
-make docker-shell
-
 # Inside container
+pm --version
 pm init
-# Manually add your projects or import from backup
+pm add /tmp/test-project
+pm list
 ```
 
-### 3. Verify Migration
+### 3. Clean Up When Done
 ```bash
-# Inside container
-pm list
-pm config show
+# Exit container and clean up
+exit
+make docker-manual-clean
 ```
 
 ## Best Practices
 
-### Development
-1. **Always use Docker for development** - eliminates environment issues
-2. **Use volume mounts** - for real-time code syncing
-3. **Commit from host** - Git operations work better on host
-4. **Test in container** - ensures consistency
+### Manual Testing
+1. **Build release binary first** - ensures testing actual release build
+2. **Use isolated container** - prevents local environment interference
+3. **Test critical workflows** - focus on user-facing functionality
+4. **Clean up after testing** - prevents resource accumulation
 
-### Testing
-1. **Run tests in container** - matches CI environment
-2. **Use cached volumes** - for faster rebuilds
-3. **Clean up regularly** - prevents disk space issues
+### Development Workflow
+1. **Develop locally** - faster iteration and debugging
+2. **Test in container** - verify functionality in clean environment
+3. **Use volume persistence** - for testing configuration changes
+4. **Regular cleanup** - prevents disk space issues
 
 ### Configuration
-1. **Keep configs in container** - prevents local interference
-2. **Use environment variables** - for container-specific settings
-3. **Document custom setups** - for team consistency
+1. **Separate test configs** - container uses isolated configuration
+2. **Document test scenarios** - for consistent testing approach
+3. **Use E2E scripts** - for automated verification
 
 ## Advanced Usage
 
-### Custom Environment Variables
-```yaml
-# Add to docker-compose.yml
-services:
-  pm-dev:
-    environment:
-      - RUST_LOG=trace
-      - PM_DEBUG=1
-      - CUSTOM_VAR=value
-```
-
-### Additional Volume Mounts
-```yaml
-# Add to docker-compose.yml
-services:
-  pm-dev:
-    volumes:
-      - ~/my-projects:/home/developer/projects:ro
-```
-
-### Multi-Stage Development
+### Custom Test Environment
 ```bash
-# Development stage
-make docker-dev
+# Run container with custom environment
+docker run -it --rm \
+  -e RUST_LOG=trace \
+  -e PM_DEBUG=1 \
+  -v pm-manual-config:/home/pmuser/.config/pm \
+  pm-manual
+```
 
-# Testing stage  
-make docker-test
+### Testing with Custom Projects
+```bash
+# Mount local projects for testing (read-only)
+docker run -it --rm \
+  -v ~/my-projects:/home/pmuser/projects:ro \
+  -v pm-manual-config:/home/pmuser/.config/pm \
+  pm-manual
+```
 
-# Production build (on host)
-make build-prod
+### E2E Testing in CI
+```bash
+# Manual testing container is also used in GitHub Actions
+# for automated E2E testing with isolated environment
+make docker-manual-build
+docker run --rm pm-manual run-e2e-tests.sh
 ```

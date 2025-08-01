@@ -1,7 +1,7 @@
 # PM (Project Manager) Makefile
 # Provides convenient commands for building and running production and development versions
 
-.PHONY: build-prod run-prod clean install-prod help test docker-dev docker-test docker-build docker-clean docker-shell docker-logs docker-stop
+.PHONY: build-prod run-prod clean install-prod help test docker-manual-build docker-manual docker-manual-quick docker-manual-clean bench test-coverage test-watch
 
 # Default target
 help:
@@ -23,22 +23,21 @@ help:
 	@echo "  make test-watch    - Run tests in watch mode"  
 	@echo "  make bench         - Run performance benchmarks"
 	@echo ""
-	@echo "Docker Development:"
-	@echo "  make docker-dev    - Start Docker development environment"
-	@echo "  make docker-shell  - Connect to development container"
-	@echo "  make docker-test   - Run tests in Docker"
-	@echo "  make docker-build  - Build Docker image"
-	@echo "  make docker-clean  - Clean Docker containers and volumes"
+	@echo "Manual Testing:"
+	@echo "  make docker-manual-quick  - Build binary + container and start test session"
+	@echo "  make docker-manual-build  - Build production binary and Docker image"
+	@echo "  make docker-manual        - Start manual testing container"
+	@echo "  make docker-manual-clean  - Clean up manual testing container"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean         - Clean build artifacts and coverage reports"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run-prod -- init         # Run 'pm init'"
-	@echo "  make run-prod -- add /path    # Run 'pm add /path'"
-	@echo "  make docker-shell             # Connect to dev container"
-	@echo "  make test-coverage            # Generate HTML coverage report"
-	@echo "  ./script/test-docker.sh       # Run tests in Docker"
+	@echo "  make run-prod -- init           # Run 'pm init'"
+	@echo "  make run-prod -- add /path      # Run 'pm add /path'"
+	@echo "  make docker-manual-quick        # Quick manual testing"
+	@echo "  make test-coverage              # Generate HTML coverage report"
+	@echo "  make bench                      # Run performance benchmarks"
 
 # Build commands
 build-prod:
@@ -86,37 +85,38 @@ clean:
 	rm -rf coverage/
 	@echo "✅ Clean complete"
 
-# Docker commands
-docker-build:
-	@echo "🐳 Building Docker image..."
-	docker-compose build pm-dev
-	@echo "✅ Docker image built"
+# Manual testing commands
+docker-manual-build:
+	@echo "🐳 Building manual test container with Linux binary..."
+	docker build -f Dockerfile.manual -t pm-manual .
+	@echo "✅ Manual testing container built"
 
-docker-dev:
-	@echo "🐳 Starting Docker development environment..."
-	docker-compose up -d pm-dev
-	@echo "✅ Development environment started"
-	@echo "💡 Connect with: docker-compose exec pm-dev bash"
+docker-manual:
+	@echo "🚀 Starting manual test container..."
+	@echo "💡 PM binary is available at: /usr/local/bin/pm"
+	@echo "💡 Type 'pm --help' to see available commands"
+	@echo "💡 Type 'exit' to leave the container"
+	@if [ -t 1 ]; then \
+		docker run -it --rm \
+			--name pm-manual-test \
+			-v pm-manual-config:/home/pmuser/.config/pm \
+			pm-manual; \
+	else \
+		echo "⚠️  No TTY detected. Use 'docker run -it --rm pm-manual' manually for interactive session"; \
+		docker run --rm \
+			--name pm-manual-test \
+			-v pm-manual-config:/home/pmuser/.config/pm \
+			pm-manual \
+			bash -c "echo 'PM binary test:' && pm --version && echo 'Container ready. Use docker run -it --rm pm-manual for interactive session.'"; \
+	fi
 
-docker-shell:
-	@./script/dev-shell.sh
+docker-manual-quick: docker-manual-build docker-manual
 
-docker-test:
-	@./script/test-docker.sh
-
-docker-logs:
-	@echo "🐳 Showing development container logs..."
-	docker-compose logs -f pm-dev
-
-docker-stop:
-	@echo "🐳 Stopping Docker containers..."
-	docker-compose down
-
-docker-clean:
-	@echo "🐳 Cleaning Docker containers and volumes..."
-	docker-compose down -v --rmi local
-	docker system prune -f
-	@echo "✅ Docker cleanup complete"
+docker-manual-clean:
+	@echo "🧹 Cleaning manual testing environment..."
+	@docker rmi pm-manual 2>/dev/null || true
+	@docker volume rm pm-manual-config 2>/dev/null || true
+	@echo "✅ Manual testing cleanup complete"
 
 # Allow extra arguments to be passed to run commands
 %:

@@ -1,6 +1,6 @@
 {
   "name": "@zdpk/pm",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "A project manager CLI tool powered by Rust.",
   "main": "dist/cli.js",
   "types": "dist/cli.d.ts",

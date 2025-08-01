@@ -6,8 +6,8 @@
 set -e # Exit immediately if a command exits with a non-zero status.
 set -x # Print commands and their arguments as they are executed.
 
-# Use the pm binary from the target directory
-PM_BIN="/workspace/target/debug/pm"
+# Use the pm binary from the system PATH (installed in Dockerfile.manual)
+PM_BIN="pm"
 
 # Create a clean test directory
 TEST_DIR="/tmp/pm-e2e-test"

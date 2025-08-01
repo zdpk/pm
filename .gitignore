@@ -92,3 +92,6 @@ test-extensions/
 
 # Vendored dependencies
 /vendor/
+
+# Internal documentation (development notes, troubleshooting)
+.docs/
