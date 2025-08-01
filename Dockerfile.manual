@@ -1,0 +1,57 @@
+# Multi-stage Dockerfile for manual testing PM binary
+# Stage 1: Build PM binary in Linux environment
+FROM rust:1.86-bookworm AS builder
+
+LABEL description="Multi-stage container for cross-platform PM binary testing"
+LABEL version="2.0"
+
+# Set working directory for build
+WORKDIR /build
+
+# Copy dependency files first for better caching
+COPY Cargo.toml Cargo.lock ./
+COPY benches/ ./benches/
+COPY src/ ./src/
+COPY tests/ ./tests/
+
+# Build PM binary for Linux
+RUN cargo build --bin pm --release
+
+# Stage 2: Runtime environment with Linux binary
+FROM debian:bookworm-slim AS runtime
+
+# Install essential runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    curl \
+    gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy the Linux-compiled PM binary from builder stage
+COPY --from=builder /build/target/release/pm /usr/local/bin/pm
+RUN chmod +x /usr/local/bin/pm
+
+# Copy E2E test script for CI testing
+COPY script/run-e2e-tests.sh /usr/local/bin/run-e2e-tests.sh
+RUN chmod +x /usr/local/bin/run-e2e-tests.sh
+
+# Copy and setup entrypoint script for volume permission fixing
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Create a non-root user for testing
+RUN useradd -m -s /bin/bash pmuser && \
+    mkdir -p /home/pmuser/.config && \
+    chown -R pmuser:pmuser /home/pmuser
+
+# Set working directory (but remain as root for entrypoint)
+WORKDIR /home/pmuser
+
+# Verify binary is working (now with Linux binary) as pmuser
+RUN gosu pmuser pm --version
+
+# Set entrypoint to fix permissions and default to interactive bash shell
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/bin/bash"]
