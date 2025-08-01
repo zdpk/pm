@@ -38,7 +38,7 @@ services:
       - CARGO_TARGET_DIR=/workspace/target
       - RUST_LOG=trace
     working_dir: /workspace
-    command: cargo test --workspace --frozen
+    command: /workspace/script/run-e2e-tests.sh
     profiles:
       - test
 

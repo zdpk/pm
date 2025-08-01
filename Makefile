@@ -17,6 +17,12 @@ help:
 	@echo "Installing:"
 	@echo "  make install-prod  - Install production binary"
 	@echo ""
+	@echo "Testing & Quality:"
+	@echo "  make test          - Run all tests"
+	@echo "  make test-coverage - Generate test coverage report"
+	@echo "  make test-watch    - Run tests in watch mode"  
+	@echo "  make bench         - Run performance benchmarks"
+	@echo ""
 	@echo "Docker Development:"
 	@echo "  make docker-dev    - Start Docker development environment"
 	@echo "  make docker-shell  - Connect to development container"
@@ -25,13 +31,13 @@ help:
 	@echo "  make docker-clean  - Clean Docker containers and volumes"
 	@echo ""
 	@echo "Maintenance:"
-	@echo "  make clean         - Clean build artifacts"
-	@echo "  make test          - Run tests"
+	@echo "  make clean         - Clean build artifacts and coverage reports"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make run-prod -- init         # Run 'pm init'"
 	@echo "  make run-prod -- add /path    # Run 'pm add /path'"
 	@echo "  make docker-shell             # Connect to dev container"
+	@echo "  make test-coverage            # Generate HTML coverage report"
 	@echo "  ./script/test-docker.sh       # Run tests in Docker"
 
 # Build commands
@@ -58,9 +64,26 @@ test:
 	@echo "🧪 Running tests..."
 	cargo test
 
+test-coverage:
+	@echo "📊 Running coverage analysis..."
+	@./script/test-coverage.sh
+
+test-watch:
+	@echo "👀 Running tests in watch mode..."
+	@if command -v cargo-watch >/dev/null 2>&1; then \
+		cargo watch -x test; \
+	else \
+		echo "❌ cargo-watch not installed. Install with: cargo install cargo-watch"; \
+	fi
+
+bench:
+	@echo "🚀 Running benchmarks..."
+	cargo bench
+
 clean:
 	@echo "🧹 Cleaning build artifacts..."
 	cargo clean
+	rm -rf coverage/
 	@echo "✅ Clean complete"
 
 # Docker commands

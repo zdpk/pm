@@ -178,3 +178,212 @@ pub fn detect_project_language(path: &Path) -> Option<String> {
         .max_by_key(|(_, count)| *count)
         .map(|(lang, _)| lang.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn create_test_files(temp_dir: &Path, files: &[(&str, &str)]) {
+        for (filename, content) in files {
+            let file_path = temp_dir.join(filename);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(file_path, content).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_get_binary_name() {
+        assert_eq!(get_binary_name(), "pm");
+    }
+
+    #[test]
+    fn test_is_git_repository_true() {
+        let temp_dir = TempDir::new().unwrap();
+        let git_dir = temp_dir.path().join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+
+        assert!(is_git_repository(temp_dir.path()));
+    }
+
+    #[test]
+    fn test_is_git_repository_false() {
+        let temp_dir = TempDir::new().unwrap();
+        assert!(!is_git_repository(temp_dir.path()));
+    }
+
+    #[test]
+    fn test_detect_project_language_rust() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("main.rs", "fn main() {}"),
+                ("lib.rs", "pub fn test() {}"),
+                ("config.rs", "use serde::*;"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert_eq!(language, Some("Rust".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_language_javascript() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("index.js", "console.log('hello');"),
+                ("app.js", "const x = 1;"),
+                ("component.jsx", "export default function() {}"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert_eq!(language, Some("JavaScript".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_language_typescript() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("index.ts", "const x: number = 1;"),
+                ("types.ts", "interface Test {}"),
+                ("component.tsx", "export default function() {}"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert_eq!(language, Some("TypeScript".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_language_python() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("main.py", "print('hello')"),
+                ("utils.py", "def test(): pass"),
+                ("config.py", "import os"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert_eq!(language, Some("Python".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_language_mixed() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("main.rs", "fn main() {}"),
+                ("script.js", "console.log('hello');"),
+                ("helper.py", "print('world')"),
+                ("another.rs", "pub fn test() {}"),
+                ("third.rs", "use std::*;"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert_eq!(language, Some("Rust".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_language_none() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("README.md", "# Test"),
+                ("config.txt", "some config"),
+                ("data.json", "{}"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert_eq!(language, None);
+    }
+
+    #[test]
+    fn test_detect_project_language_empty_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let language = detect_project_language(temp_dir.path());
+        assert_eq!(language, None);
+    }
+
+    #[test]
+    fn test_get_last_git_commit_time_no_git() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = get_last_git_commit_time(temp_dir.path());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_get_git_remote_url_no_git() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = get_git_remote_url(temp_dir.path());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_get_git_current_branch_no_git() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = get_git_current_branch(temp_dir.path());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_get_git_status_no_git() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = get_git_status(temp_dir.path());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_language_priority_with_equal_counts() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("main.rs", "fn main() {}"),
+                ("script.js", "console.log('hello');"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert!(language.is_some());
+        let lang = language.unwrap();
+        assert!(lang == "Rust" || lang == "JavaScript");
+    }
+
+    #[test]
+    fn test_special_languages() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_files(
+            temp_dir.path(),
+            &[
+                ("test.go", "package main"),
+                ("example.java", "public class Test {}"),
+                ("demo.cpp", "#include <iostream>"),
+            ],
+        );
+
+        let language = detect_project_language(temp_dir.path());
+        assert!(language.is_some());
+        let lang = language.unwrap();
+        assert!(["Go", "Java", "C++"].contains(&lang.as_str()));
+    }
+}

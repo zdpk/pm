@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(shared/**)",
+      "Edit(shared/**)",
+      "Replace(shared/**)",
+      "Bash(*)"
+    ]
+  },
+  "additionalDirectories": [
+    {
+      "path": "../shared",
+      "readClaudeMd": false,
+      "alias": "shared"
+    }
+  ],
+  "defaultMode": "acceptEdits"
+}
