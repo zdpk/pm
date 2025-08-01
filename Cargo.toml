@@ -8,6 +8,7 @@ repository = "https://github.com/zdpk/project-manager"
 homepage = "https://github.com/zdpk/project-manager"
 keywords = ["cli", "project", "management", "developer-tools"]
 categories = ["command-line-utilities", "development-tools"]
+default-run = "pm"
 
 [features]
 default = []
@@ -15,14 +16,6 @@ default = []
 [lib]
 name = "pm"
 path = "src/lib.rs"
-
-[[bin]]
-name = "pm"
-path = "src/bin/pm.rs"
-
-[[bin]]
-name = "cargo-dev"
-path = "src/bin/cargo-dev.rs"
 
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
@@ -53,3 +46,8 @@ tempfile = "3.0"
 
 [dev-dependencies]
 wiremock = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "pm_benchmarks"
+harness = false

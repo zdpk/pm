@@ -294,3 +294,155 @@ pub fn get_machine_id() -> String {
             .unwrap_or_else(|_| "unknown".to_string())
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    fn create_test_config() -> Config {
+        Config {
+            version: CONFIG_VERSION.to_string(),
+            config_path: PathBuf::from("/tmp/test"),
+            settings: ConfigSettings::default(),
+            projects: HashMap::new(),
+            machine_metadata: HashMap::new(),
+        }
+    }
+
+    fn create_test_project() -> Project {
+        Project {
+            id: Uuid::new_v4(),
+            name: "test-project".to_string(),
+            path: PathBuf::from("/test/path"),
+            tags: vec!["test".to_string()],
+            description: Some("Test project".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            git_updated_at: None,
+            is_git_repository: false,
+        }
+    }
+
+    #[test]
+    fn test_config_settings_default() {
+        let settings = ConfigSettings::default();
+        assert_eq!(settings.show_git_status, false);
+        assert_eq!(settings.recent_projects_limit, 0);
+    }
+
+    #[test]
+    fn test_config_creation() {
+        let config = create_test_config();
+        assert_eq!(config.version, CONFIG_VERSION);
+        assert_eq!(config.config_path, PathBuf::from("/tmp/test"));
+        assert!(config.projects.is_empty());
+        assert!(config.machine_metadata.is_empty());
+    }
+
+    #[test]
+    fn test_add_project() {
+        let mut config = create_test_config();
+        let project = create_test_project();
+        let project_id = project.id;
+
+        config.add_project(project);
+
+        assert!(config.projects.contains_key(&project_id));
+        assert_eq!(config.projects[&project_id].name, "test-project");
+    }
+
+    #[test]
+    fn test_remove_project() {
+        let mut config = create_test_config();
+        let project = create_test_project();
+        let project_id = project.id;
+
+        config.add_project(project);
+        assert!(config.projects.contains_key(&project_id));
+
+        config.remove_project(project_id).unwrap();
+        assert!(!config.projects.contains_key(&project_id));
+    }
+
+    #[test]
+    fn test_track_project_access() {
+        let mut config = create_test_config();
+        let project = create_test_project();
+        let project_id = project.id;
+
+        config.add_project(project);
+        config.record_project_access(project_id);
+
+        let (last_accessed, access_count) = config.get_project_access_info(project_id);
+        assert!(last_accessed.is_some());
+        assert_eq!(access_count, 1);
+    }
+
+    #[test]
+    fn test_multiple_project_access() {
+        let mut config = create_test_config();
+        let project = create_test_project();
+        let project_id = project.id;
+
+        config.add_project(project);
+        
+        // Track access multiple times
+        config.record_project_access(project_id);
+        config.record_project_access(project_id);
+        config.record_project_access(project_id);
+
+        let (_, access_count) = config.get_project_access_info(project_id);
+        assert_eq!(access_count, 3);
+    }
+
+    #[test]
+    fn test_get_machine_id() {
+        let machine_id = get_machine_id();
+        assert!(!machine_id.is_empty());
+        assert!(machine_id.len() > 0);
+    }
+
+    #[test]
+    fn test_config_directory_creation() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config");
+        
+        let result = std::fs::create_dir_all(&config_path);
+        assert!(result.is_ok());
+        assert!(config_path.exists());
+    }
+
+    #[test]
+    fn test_validate_config() {
+        let config = create_test_config();
+        let result = validate_config(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_project_not_found_access_info() {
+        let config = create_test_config();
+        let random_id = Uuid::new_v4();
+        
+        let (last_accessed, access_count) = config.get_project_access_info(random_id);
+        assert!(last_accessed.is_none());
+        assert_eq!(access_count, 0);
+    }
+
+    #[test]
+    fn test_total_access_count() {
+        let mut config = create_test_config();
+        let project = create_test_project();
+        let project_id = project.id;
+
+        config.add_project(project);
+        config.record_project_access(project_id);
+        config.record_project_access(project_id);
+
+        let total_count = config.get_total_access_count(project_id);
+        assert_eq!(total_count, 2);
+    }
+}

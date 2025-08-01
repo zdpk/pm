@@ -89,3 +89,6 @@ test-extensions/
 /npm/node_modules
 /npm/bin
 .tmp/
+
+# Vendored dependencies
+/vendor/
