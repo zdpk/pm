@@ -1,30 +1,36 @@
 #!/usr/bin/env node
 
-import * as path from 'path';
 import { spawn } from 'child_process';
-import * as os from 'os';
+import { join } from 'path';
 
-const BIN_DIR = path.join(__dirname, '..', 'bin');
-const BINARY_NAME = os.platform() === 'win32' ? 'pm.exe' : 'pm';
-const BINARY_PATH = path.join(BIN_DIR, BINARY_NAME);
+const binaryName = 'pm';
 
-// Pass all arguments to the pm binary
-const args = process.argv.slice(2);
+async function main() {
+  const binaryPath = join(__dirname, '..', 'bin', binaryName + (process.platform === 'win32' ? '.exe' : ''));
+  
+  const child = spawn(binaryPath, process.argv.slice(2), {
+    stdio: 'inherit'
+  });
+  
+  child.on('error', (error) => {
+    if (error.message.includes('ENOENT')) {
+      console.error(`Binary not found: ${binaryPath}`);
+      console.error('Please ensure the binary was installed correctly.');
+      process.exit(1);
+    } else {
+      console.error('Error running binary:', error.message);
+      process.exit(1);
+    }
+  });
+  
+  child.on('close', (code) => {
+    process.exit(code || 0);
+  });
+}
 
-const child = spawn(BINARY_PATH, args, {
-  stdio: 'inherit', // Inherit stdin, stdout, stderr
-});
-
-child.on('error', (err) => {
-  console.error(`Failed to start pm binary: ${err.message}`);
-  process.exit(1);
-});
-
-child.on('close', (code) => {
-  if (code !== null) {
-    process.exit(code);
-  } else {
-    // Process was terminated by signal
-    process.exit(1); 
-  }
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('Unexpected error:', error);
+    process.exit(1);
+  });
+}

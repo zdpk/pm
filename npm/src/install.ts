@@ -1,74 +1,114 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import { promises as fs } from 'fs';
+import { join } from 'path';
+import { platform, arch } from 'os';
 import fetch from 'node-fetch';
-import decompress, { File as DecompressFile } from 'decompress';
 
-const REPO_OWNER = 'zdpk';
-const REPO_NAME = 'pm';
-const BIN_DIR = path.join(__dirname, '..', 'bin');
-
-async function getLatestReleaseTag(): Promise<string> {
-    const packageJsonPath = path.join(__dirname, '..', 'package.json');
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    return `v${packageJson.version}`;
+interface PackageInfo {
+  name: string;
+  version: string;
+  repository?: {
+    url: string;
+  };
 }
 
-function getDownloadUrl(version: string): { url: string, filename: string } {
-    const platform = os.platform();
-    const arch = os.arch();
+async function getPackageInfo(): Promise<PackageInfo> {
+  const packageJsonPath = join(__dirname, '..', 'package.json');
+  const packageJson = await fs.readFile(packageJsonPath, 'utf-8');
+  return JSON.parse(packageJson);
+}
 
-    let target = '';
-    let ext = '.tar.gz'; // Default for Linux/macOS
+function getPlatformInfo(): { platform: string; arch: string; extension: string } {
+  const platformMap: Record<string, string> = {
+    'darwin': 'macos',
+    'linux': 'linux',
+    'win32': 'windows'
+  };
+  
+  const archMap: Record<string, string> = {
+    'x64': 'x64',
+    'arm64': 'arm64'
+  };
+  
+  const currentPlatform = platformMap[platform()] || platform();
+  const currentArch = archMap[arch()] || arch();
+  const extension = platform() === 'win32' ? '.exe' : '';
+  
+  return {
+    platform: currentPlatform,
+    arch: currentArch,
+    extension
+  };
+}
 
-    if (platform === 'linux' && arch === 'x64') {
-        target = 'x86_64-unknown-linux-gnu';
-    } else if (platform === 'darwin' && arch === 'x64') {
-        target = 'x86_64-apple-darwin';
-    } else if (platform === 'darwin' && arch === 'arm64') {
-        target = 'aarch64-apple-darwin';
-    } else if (platform === 'win32' && arch === 'x64') {
-        target = 'x86_64-pc-windows-msvc';
-        ext = '.zip'; // Windows binaries are typically .zip
-    } else {
-        throw new Error(`Unsupported platform: ${platform}-${arch}`);
+function extractRepoInfo(repoUrl: string): { owner: string; repo: string } {
+  const match = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/]+?)(?:\.git)?$/);
+  if (!match) {
+    throw new Error(`Cannot parse GitHub repository URL: ${repoUrl}`);
+  }
+  return { owner: match[1], repo: match[2] };
+}
+
+async function downloadBinary(
+  owner: string,
+  repo: string,
+  version: string,
+  binaryName: string,
+  platformInfo: ReturnType<typeof getPlatformInfo>,
+  targetPath: string
+): Promise<void> {
+  const fileName = `${binaryName}-${platformInfo.platform}-${platformInfo.arch}${platformInfo.extension}`;
+  const downloadUrl = `https://github.com/${owner}/${repo}/releases/download/v${version}/${fileName}`;
+  
+  console.log(`Downloading binary from: ${downloadUrl}`);
+  
+  const response = await fetch(downloadUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download binary: ${response.status} ${response.statusText}`);
+  }
+  
+  const buffer = await response.buffer();
+  await fs.writeFile(targetPath, buffer, { mode: 0o755 });
+  
+  console.log(`Binary installed successfully: ${targetPath}`);
+}
+
+async function install(): Promise<void> {
+  try {
+    const packageInfo = await getPackageInfo();
+    const platformInfo = getPlatformInfo();
+    
+    if (!packageInfo.repository?.url) {
+      throw new Error('Repository URL not found in package.json');
     }
-
-    const filename = `pm-${target}${ext}`;
-    const url = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${version}/${filename}`;
-    return { url, filename };
-}
-
-async function downloadAndExtractBinary() {
+    
+    const { owner, repo } = extractRepoInfo(packageInfo.repository.url);
+    const binaryName = 'pm';
+    
+    // Ensure bin directory exists
+    const binDir = join(__dirname, '..', 'bin');
+    await fs.mkdir(binDir, { recursive: true });
+    
+    const targetPath = join(binDir, binaryName + platformInfo.extension);
+    
+    // Check if binary already exists
     try {
-        const version = await getLatestReleaseTag();
-        const { url: downloadUrl, filename: expectedFilename } = getDownloadUrl(version);
-        const response = await fetch(downloadUrl);
-
-        if (!response.ok) {
-            throw new Error(`Failed to download binary from ${downloadUrl}: ${response.statusText}`);
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        if (!fs.existsSync(BIN_DIR)) {
-            fs.mkdirSync(BIN_DIR, { recursive: true });
-        }
-
-        await decompress(buffer, BIN_DIR, {
-            filter: (file: DecompressFile) => file.path.includes('pm') || file.path.includes('pm.exe'),
-            strip: 1 // Remove the top-level directory inside the archive
-        });
-
-        const binaryPath = path.join(BIN_DIR, os.platform() === 'win32' ? 'pm.exe' : 'pm');
-        fs.chmodSync(binaryPath, '755'); // Grant execute permissions
-
-        console.log(`pm binary downloaded to ${binaryPath}`);
-    } catch (error) {
-        console.error('Error downloading or extracting pm binary:', error);
-        process.exit(1);
+      await fs.access(targetPath);
+      console.log('Binary already exists, skipping download');
+      return;
+    } catch {
+      // Binary doesn't exist, proceed with download
     }
+    
+    await downloadBinary(owner, repo, packageInfo.version, binaryName, platformInfo, targetPath);
+    
+  } catch (error) {
+    console.error('Failed to install binary:', error);
+    process.exit(1);
+  }
 }
 
-downloadAndExtractBinary();
+if (require.main === module) {
+  install();
+}
+
+export { install };
