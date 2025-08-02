@@ -16,16 +16,12 @@ permissions:
 
 jobs:
   release:
-    uses: ./.github/workflows/rust-npm-publish-local.yml
+    uses: xctions/rust-release/.github/workflows/reusable-rust-release.yml@v2
     with:
-      binaries: 'pm'
       platforms: 'macos-arm64'
-      main_binary: pm
+      tag_name: ${{ github.event.inputs.tag || github.ref_name }}
       npm_enabled: true
       npm_directory: npm
-      tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-      rust_version: 'stable'
-      node_version: '20'
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
