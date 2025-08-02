@@ -18,7 +18,7 @@ jobs:
   release:
     uses: xctions/rust-release/.github/workflows/reusable-rust-release.yml@v2
     with:
-      platforms: 'macos-arm64,macos-x64'
+      platforms: 'macos-arm64'
       tag_name: ${{ github.event.inputs.tag || github.ref_name }}
       npm_enabled: true
       npm_directory: npm
