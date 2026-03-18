@@ -2,6 +2,7 @@ use crate::path::expand_path;
 use anyhow::Result;
 use git2::Repository;
 use std::path::Path;
+use std::process::Command;
 
 /// Check if path is a git repository
 pub fn is_git_repo(path: &str) -> bool {
@@ -15,14 +16,6 @@ pub fn get_remote_url(path: &str) -> Option<String> {
     let repo = Repository::open(&expanded).ok()?;
     let remote = repo.find_remote("origin").ok()?;
     remote.url().map(|s| s.to_string())
-}
-
-/// Get current branch name
-pub fn get_current_branch(path: &str) -> Option<String> {
-    let expanded = expand_path(path);
-    let repo = Repository::open(&expanded).ok()?;
-    let head = repo.head().ok()?;
-    head.shorthand().map(|s| s.to_string())
 }
 
 /// Git repository status
@@ -118,7 +111,35 @@ pub fn set_git_config(path: &str, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-/// Initialize a new git repository
-pub fn init_repo(path: &Path) -> Result<Repository> {
-    Ok(Repository::init(path)?)
+pub fn repo_slug_from_remote(remote: &str) -> Option<String> {
+    let trimmed = remote.trim_end_matches(".git").trim_end_matches('/');
+    let slug = trimmed
+        .rsplit(['/', ':'])
+        .next()
+        .filter(|value| !value.is_empty())?;
+    Some(slug.to_string())
+}
+
+pub fn remote_matches(path: &Path, expected: &str) -> bool {
+    let Ok(repo) = Repository::open(path) else {
+        return false;
+    };
+    let Ok(remote) = repo.find_remote("origin") else {
+        return false;
+    };
+    remote.url().is_some_and(|url| url == expected)
+}
+
+pub fn clone_repo(remote: &str, target: &Path) -> Result<()> {
+    let status = Command::new("git")
+        .arg("clone")
+        .arg(remote)
+        .arg(target)
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("git clone failed for {}", remote))
+    }
 }
