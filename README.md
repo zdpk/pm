@@ -1,14 +1,21 @@
-# PM - Project Manager CLI
+# PM - Portable Project Manager CLI
 
-A fast, minimal CLI tool for managing Git project directories. Register, organize, and switch between projects with ease.
+`pm` is a Git project directory manager built around portable workspace manifests.
+Instead of storing absolute project paths as the source of truth, PM stores:
+
+- workspace roots
+- project relative directories
+- Git remotes
+
+That makes it possible to move your PM config between VMs and restore the same workspace layout with `pm sync`.
 
 ## Features
 
-- **Project Registration** - Track projects across your system
-- **Workspace Organization** - Group projects by context (work, personal, etc.)
-- **Quick Navigation** - Switch between projects with shell integration
-- **Git Status at a Glance** - See branch and change status in listings
-- **Cross-Platform** - Works on macOS, Linux, and Windows
+- **Portable manifest** - Track projects in `manifest.json`
+- **Workspace roots** - Every workspace can own a predictable root directory
+- **Lazy restore** - Missing projects can be restored on `pm sw <project>`
+- **Bulk restore** - `pm sync` restores missing repositories in parallel
+- **Git-aware checks** - Detect missing repos, remote mismatches, and path conflicts
 
 ## Installation
 
@@ -21,8 +28,26 @@ cargo install --path . --bin pm
 ### Development Version
 
 ```bash
-# Separate config directory for testing
 cargo install --path . --bin pmd
+```
+
+### Bundled Skills Plugin
+
+The repo includes a bundled `skills` command plugin at
+`plugins/commands/skills/`.
+
+Install it into your active PM config with:
+
+```bash
+make install-skills-plugin
+```
+
+Or copy it manually:
+
+```bash
+mkdir -p ~/.config/pm/plugins/commands/skills
+cp plugins/commands/skills/plugin.toml ~/.config/pm/plugins/commands/skills/
+cp plugins/commands/skills/main.py ~/.config/pm/plugins/commands/skills/
 ```
 
 ## Quick Start
@@ -31,123 +56,201 @@ cargo install --path . --bin pmd
 # Initialize PM
 pm init
 
-# Add current directory as a project
-pm add .
+# Create a workspace with an explicit root
+pm ws new work --root ~/work
 
-# Add a project with a custom name
-pm add ~/projects/my-app --name my-app
+# Add an existing repo under that workspace root
+pm add ~/work/company-api
 
-# List all projects
+# List projects
 pm ls
 
-# Switch to a project (requires shell integration)
-pm sw my-app
+# Restore missing repos in bulk
+pm sync
+
+# Switch to a project
+pm sw company-api
+```
+
+## Core Model
+
+PM stores two files:
+
+| File | Purpose |
+|------|---------|
+| `config.json` | Machine-local settings and current workspace/project |
+| `manifest.json` | Portable workspace/project definition |
+| `history.json` | Removal history snapshots for later restore workflows |
+
+`manifest.json` is the portable source of truth. Each project stores:
+
+- `workspace`
+- `dir` relative to the workspace root
+- `repo_slug`
+- `remote` when available
+
+The effective local path is always computed as:
+
+```text
+workspace.root + project.dir
 ```
 
 ## Shell Integration
 
-Add to your `.bashrc` or `.zshrc`:
+Add this to `.bashrc` or `.zshrc`:
 
 ```bash
 pm() {
     if [[ "$1" == "sw" || "$1" == "switch" ]] && [[ -n "$2" ]]; then
         local dir
-        dir="$(command pm path "$2")" && cd "$dir"
+        dir="$(command pm sw "$2")" && cd "$dir"
     else
         command pm "$@"
     fi
 }
 ```
 
+`pm sw` is interactive and may offer to restore a missing project.
+`pm path` is non-interactive and fails if the directory is missing.
+
 ## Commands
 
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `pm init` | | Initialize PM configuration |
-| `pm add <path>` | | Register a project |
+| `pm add <path>` | | Register a project under the current workspace root |
 | `pm list` | `ls` | List projects |
-| `pm switch <project>` | `sw` | Switch to project directory |
+| `pm switch <project>` | `sw` | Switch to project directory, optionally restoring it |
+| `pm path <project>` | | Print project path without restoring |
 | `pm remove <project>` | `rm` | Unregister a project |
+| `pm history` | | Show recent removal history |
 | `pm use <workspace>` | | Switch workspace |
 | `pm workspace` | `ws` | Workspace management |
-| `pm check` | | Validate project paths |
+| `pm sync [workspace]` | | Restore missing repositories in parallel |
+| `pm manifest migrate` | | Migrate legacy `projects.json`/`workspaces.json` |
+| `pm check` | | Validate project health |
+| `pm plugin` | | List, enable, or disable command plugins |
 | `pm completion <shell>` | | Generate shell completions |
 
-## Listing Projects
+Installed command plugins can also expose top-level commands such as:
 
 ```bash
-pm ls                    # Current workspace
-pm ls --all              # All workspaces
-pm ls --tags rust,cli    # Filter by tags
-pm ls --sort name        # Sort by name
-pm ls --no-status        # Skip git status (faster)
+pm skills list
+pm skills info sc
+pm skills deploy --dry-run
 ```
-
-### Output Format
-
-```
-● default (3 projects)
-
-  NAME       BRANCH         STATUS         LAST       PATH
-* my-app     main           clean          2h ago     ~/projects/my-app
-  api        develop        3 changed      1d ago     ~/projects/api
-  docs       main           not git        5d ago     ~/projects/docs
-```
-
-### Sort Options
-
-| Option | Description |
-|--------|-------------|
-| `accessed` | Last accessed (default) |
-| `name` | Alphabetical |
-| `path` | By path |
-| `added` | Registration date |
-| `frequency` | Access count |
-| `status` | Git status (dirty first) |
 
 ## Workspaces
 
-Organize projects into logical groups:
+Create and manage workspace roots:
 
 ```bash
-# Create a workspace
-pm ws new work
+# Create a workspace with explicit root
+pm ws new work --root ~/work
 
-# Switch workspace
+# Switch current workspace
 pm use work
 
-# Move project to workspace
-pm ws mv my-app work
+# Change the root later
+pm ws root set work ~/src/work
+
+# Move a project between workspaces
+pm ws mv company-api personal
 
 # List workspaces
 pm ws list
 ```
 
-### Workspace-specific Git Config
+By default, if a workspace has no explicit `root`, PM resolves it as:
+
+```text
+config.base_root/<workspace>
+```
+
+The default `base_root` is `~/`.
+
+## Restore Workflow
+
+### Bulk restore
+
+On a new VM:
+
+1. copy your `manifest.json`
+2. keep or adjust `config.json`
+3. run `pm sync`
+
+If missing repositories are found, PM asks once whether to restore them. If you confirm, PM clones them in parallel into their expected workspace paths.
+
+### Lazy restore
+
+If you skip `pm sync`, PM can still restore on demand:
 
 ```bash
-# Set git config for a workspace
-pm ws config work user.email "john@company.com"
-pm ws config work user.name "John Doe"
-
-# Apply to all projects in workspace
-pm ws apply-git work
+pm sw company-api
 ```
+
+If the project is registered but missing locally, PM asks whether to restore it to the expected path and then switches into it.
+
+## Removal Safety and History
+
+`pm rm` now requires an explicit confirmation by default:
+
+```bash
+pm rm my-app
+pm rm -f my-app
+pm rm -rf my-app
+pm rm -y my-app
+```
+
+Each variant prints the target action and only proceeds if you type exactly `y`.
+For non-interactive environments, use `-y` or `--yes`.
+
+Every successful removal action is appended to `history.json`, including:
+
+- action type (`unregistered`, `trashed`, `deleted`)
+- timestamp
+- project snapshot
+- resolved path at the time of removal
+
+You can inspect recent entries with:
+
+```bash
+pm history
+pm history --limit 50
+```
+
+`pm sync` also supports `-y` / `--yes` to restore missing repositories without prompting:
+
+```bash
+pm sync -y
+pm sync work -y --jobs 8
+```
+
+## Listing and Health Checks
+
+```bash
+pm ls
+pm ls --all
+pm ls --tags rust,cli
+pm ls --filter orphan
+pm check
+```
+
+`pm check` distinguishes between:
+
+- present
+- missing but restorable
+- missing and not restorable
+- remote mismatch
+- path conflict
 
 ## Configuration
 
 Configuration is stored in:
+
 - **macOS**: `~/Library/Application Support/pm/`
 - **Linux**: `~/.config/pm/`
-- **Windows**: `%APPDATA%\pm\`
-
-### Files
-
-| File | Description |
-|------|-------------|
-| `config.json` | Global settings |
-| `projects.json` | Project registry |
-| `workspaces.json` | Workspace data |
+- **Windows**: `%APPDATA%\\pm\\`
 
 ### Environment Variables
 
@@ -162,38 +265,24 @@ Configuration is stored in:
 | `pm` | Default location | Production |
 | `pmd` | `pm-dev/` subdirectory | Development/Testing |
 
-## Shell Completions
+## Legacy Migration
+
+If you already have `projects.json` and `workspaces.json`, PM will migrate them into `manifest.json` on load.
+
+You can also run migration explicitly:
 
 ```bash
-# Bash
-pm completion bash > ~/.bash_completion.d/pm
-
-# Zsh
-pm completion zsh > ~/.zfunc/_pm
-
-# Fish
-pm completion fish > ~/.config/fish/completions/pm.fish
+pm manifest migrate
 ```
 
 ## Building
 
 ```bash
-# Development build
 make dev
-
-# Release build
 make release
-
-# Install
 make install
-
-# Run tests
 make test
-
-# Format code
 make fmt
-
-# Lint
 make lint
 ```
 

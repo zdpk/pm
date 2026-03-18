@@ -1,5 +1,7 @@
 # PM (Project Manager) CLI Specification
 
+> Note: the current implementation now uses `config.json` + `manifest.json`, workspace roots, `pm sync`, and lazy restore on `pm sw`. Treat `README.md` as the up-to-date user-facing reference until this spec is fully refreshed.
+
 Git 프로젝트 디렉토리들을 등록하고 관리하는 Rust CLI 도구
 
 ## 설계 철학
