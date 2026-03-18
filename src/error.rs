@@ -41,6 +41,12 @@ pub enum PmError {
     #[error("No remote URL saved for '{0}'")]
     NoRemoteUrl(String),
 
+    #[error("Project '{0}' is registered but missing locally")]
+    ProjectMissing(String),
+
+    #[error("Non-interactive mode cannot restore missing project '{0}'. Run 'pm sw {0}' in a TTY or 'pm sync'.")]
+    NonInteractiveRestore(String),
+
     #[error("Git error: {0}")]
     Git(#[from] git2::Error),
 

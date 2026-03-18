@@ -19,6 +19,15 @@ pub struct Config {
 
     #[serde(default)]
     pub git_hooks: GitHooksConfig,
+
+    #[serde(default = "default_base_root")]
+    pub base_root: String,
+
+    #[serde(default = "default_workspace")]
+    pub current_workspace: String,
+
+    #[serde(default)]
+    pub current_project: Option<String>,
 }
 
 fn default_editor() -> String {
@@ -29,6 +38,14 @@ fn default_git_host() -> String {
     "https://github.com".to_string()
 }
 
+fn default_base_root() -> String {
+    "~/".to_string()
+}
+
+fn default_workspace() -> String {
+    "default".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -37,6 +54,9 @@ impl Default for Config {
             display: DisplayConfig::default(),
             git: GitConfig::default(),
             git_hooks: GitHooksConfig::default(),
+            base_root: default_base_root(),
+            current_workspace: default_workspace(),
+            current_project: None,
         }
     }
 }
@@ -76,24 +96,166 @@ pub struct GitHooksConfig {
     pub auto_install: bool,
 }
 
-/// projects.json schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectsData {
+pub struct HistoryData {
     pub version: u32,
-    pub projects: Vec<Project>,
+    pub entries: Vec<HistoryEntry>,
 }
 
-impl Default for ProjectsData {
+impl Default for HistoryData {
     fn default() -> Self {
         Self {
             version: 1,
+            entries: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub timestamp: DateTime<Utc>,
+    pub action: HistoryAction,
+    pub project: HistoryProjectSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryAction {
+    Unregistered,
+    Trashed,
+    Deleted,
+}
+
+impl HistoryAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Unregistered => "unregistered",
+            Self::Trashed => "trashed",
+            Self::Deleted => "deleted",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryProjectSnapshot {
+    pub name: String,
+    pub workspace: String,
+    pub repo_slug: String,
+    pub dir: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
+
+    pub path: String,
+}
+
+/// manifest.json schema
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Manifest {
+    pub version: u32,
+    pub workspaces: Vec<Workspace>,
+    pub projects: Vec<Project>,
+}
+
+impl Default for Manifest {
+    fn default() -> Self {
+        Self {
+            version: 2,
+            workspaces: vec![
+                Workspace::new("default".to_string(), None),
+                Workspace::new_system(".trash".to_string(), None),
+            ],
             projects: Vec::new(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Workspace {
+    pub name: String,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+
+    pub created_at: DateTime<Utc>,
+
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub git: HashMap<String, String>,
+}
+
+impl Workspace {
+    pub fn new(name: String, root: Option<String>) -> Self {
+        Self {
+            name,
+            root,
+            created_at: Utc::now(),
+            git: HashMap::new(),
+        }
+    }
+
+    pub fn new_system(name: String, root: Option<String>) -> Self {
+        Self {
+            name,
+            root,
+            created_at: Utc::now(),
+            git: HashMap::new(),
+        }
+    }
+
+    pub fn is_system(&self) -> bool {
+        self.name.starts_with('.')
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
+    pub name: String,
+    pub workspace: String,
+    pub repo_slug: String,
+    pub dir: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+
+    pub added_at: DateTime<Utc>,
+    pub last_accessed: DateTime<Utc>,
+
+    #[serde(default)]
+    pub access_count: u32,
+}
+
+impl Project {
+    pub fn new(name: String, workspace: String, repo_slug: String, dir: String) -> Self {
+        let now = Utc::now();
+        Self {
+            name,
+            workspace,
+            repo_slug,
+            dir,
+            remote: None,
+            tags: Vec::new(),
+            note: None,
+            added_at: now,
+            last_accessed: now,
+            access_count: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyProjectsData {
+    pub version: u32,
+    pub projects: Vec<LegacyProject>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyProject {
     pub name: String,
     pub path: String,
 
@@ -113,76 +275,21 @@ pub struct Project {
     pub access_count: u32,
 }
 
-impl Project {
-    pub fn new(name: String, path: String) -> Self {
-        let now = Utc::now();
-        Self {
-            name,
-            path,
-            remote: None,
-            tags: Vec::new(),
-            note: None,
-            added_at: now,
-            last_accessed: now,
-            access_count: 0,
-        }
-    }
-}
-
-/// workspaces.json schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkspacesData {
+pub struct LegacyWorkspacesData {
     pub version: u32,
     pub current: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_project: Option<String>,
-    pub workspaces: Vec<Workspace>,
-}
-
-impl Default for WorkspacesData {
-    fn default() -> Self {
-        Self {
-            version: 1,
-            current: "default".to_string(),
-            current_project: None,
-            workspaces: vec![
-                Workspace::new("default".to_string()),
-                Workspace::new_system(".trash".to_string()),
-            ],
-        }
-    }
+    pub workspaces: Vec<LegacyWorkspace>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Workspace {
+pub struct LegacyWorkspace {
     pub name: String,
     pub projects: Vec<String>,
     pub created_at: DateTime<Utc>,
 
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub git: HashMap<String, String>,
-}
-
-impl Workspace {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            projects: Vec::new(),
-            created_at: Utc::now(),
-            git: HashMap::new(),
-        }
-    }
-
-    pub fn new_system(name: String) -> Self {
-        Self {
-            name,
-            projects: Vec::new(),
-            created_at: Utc::now(),
-            git: HashMap::new(),
-        }
-    }
-
-    pub fn is_system(&self) -> bool {
-        self.name.starts_with('.')
-    }
 }
