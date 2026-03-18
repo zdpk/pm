@@ -1,57 +1,57 @@
-use crate::config::{load_projects, load_workspaces, save_projects, save_workspaces};
 use crate::error::PmError;
-use crate::path::expand_path;
+use crate::restore::{can_prompt, prompt_yes_no, restore_project};
+use crate::state::{find_project_mut, load_state, parse_target, project_path, save_state};
 use anyhow::Result;
 use chrono::Utc;
 
 pub fn run(target: String) -> Result<()> {
-    let mut projects_data = load_projects()?;
-    let mut workspaces_data = load_workspaces()?;
+    let (mut config, mut manifest) = load_state()?;
+    let (workspace_name, project_name) = parse_target(target);
 
-    // Parse @workspace/project syntax
-    let (workspace_name, project_name) = if target.starts_with('@') {
-        let parts: Vec<&str> = target[1..].splitn(2, '/').collect();
-        if parts.len() == 2 {
-            (Some(parts[0].to_string()), parts[1].to_string())
-        } else {
-            (None, target)
+    if let Some(workspace_name) = workspace_name {
+        if !manifest.workspaces.iter().any(|ws| ws.name == workspace_name) {
+            return Err(PmError::WorkspaceNotFound(workspace_name).into());
         }
-    } else {
-        (None, target)
-    };
-
-    // Switch workspace if specified
-    if let Some(ref ws_name) = workspace_name {
-        if !workspaces_data.workspaces.iter().any(|w| &w.name == ws_name) {
-            return Err(PmError::WorkspaceNotFound(ws_name.clone()).into());
-        }
-        workspaces_data.current = ws_name.clone();
-        save_workspaces(&workspaces_data)?;
+        config.current_workspace = workspace_name;
     }
 
-    // Find project and get path
-    let project_path = {
-        let project = projects_data
-            .projects
-            .iter_mut()
-            .find(|p| p.name == project_name)
-            .ok_or_else(|| PmError::ProjectNotFound(project_name.clone()))?;
-
-        // Update access time and count
+    let project_snapshot = {
+        let project = find_project_mut(&mut manifest, &project_name)?;
         project.last_accessed = Utc::now();
         project.access_count += 1;
+        config.current_workspace = project.workspace.clone();
+        config.current_project = Some(project.name.clone());
+        project.clone()
+    };
+    let initial_path = project_path(&config, &manifest, &project_snapshot)?;
 
-        project.path.clone()
+    let final_path = if initial_path.exists() {
+        initial_path
+    } else {
+        let project = find_project_mut(&mut manifest, &project_name)?.clone();
+        if project.remote.is_none() {
+            return Err(PmError::ProjectMissing(project.name.clone()).into());
+        }
+        if !can_prompt() {
+            return Err(PmError::NonInteractiveRestore(project.name.clone()).into());
+        }
+
+        let should_restore = prompt_yes_no(
+            &format!(
+                "Project '{}' is missing at {}. Restore it now?",
+                project.name,
+                initial_path.display()
+            ),
+            true,
+        )?;
+        if !should_restore {
+            return Err(PmError::ProjectMissing(project.name.clone()).into());
+        }
+
+        restore_project(&config, &manifest, &project)?
     };
 
-    // Set current project
-    workspaces_data.current_project = Some(project_name);
-    save_workspaces(&workspaces_data)?;
-    save_projects(&projects_data)?;
-
-    // Print path for shell integration
-    let path = expand_path(&project_path);
-    println!("{}", path.display());
-
+    save_state(&config, &manifest)?;
+    println!("{}", final_path.display());
     Ok(())
 }

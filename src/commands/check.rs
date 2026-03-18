@@ -1,39 +1,76 @@
-use crate::config::load_projects;
-use crate::path::path_exists;
+use crate::git::{is_git_repo, remote_matches};
+use crate::state::{load_state, project_path, project_path_display};
 use anyhow::Result;
 use colored::Colorize;
 
 pub fn run() -> Result<()> {
-    let projects_data = load_projects()?;
+    let (config, manifest) = load_state()?;
+    let mut issues = 0;
 
-    let mut invalid_count = 0;
+    for project in &manifest.projects {
+        let path = project_path(&config, &manifest, project)?;
+        let path_display = project_path_display(&config, &manifest, project)?;
 
-    for project in &projects_data.projects {
-        if path_exists(&project.path) {
+        if !path.exists() {
+            if project.remote.is_some() {
+                println!(
+                    "{} {:<16} {} ({})",
+                    "✗".yellow(),
+                    project.name,
+                    path_display,
+                    "missing-restorable".yellow()
+                );
+            } else {
+                println!(
+                    "{} {:<16} {} ({})",
+                    "✗".red(),
+                    project.name,
+                    path_display,
+                    "missing-unrestorable".red()
+                );
+            }
+            issues += 1;
+            continue;
+        }
+
+        if !is_git_repo(&path.display().to_string()) {
             println!(
-                "{} {:<16} {}",
-                "✓".green(),
-                project.name,
-                project.path
-            );
-        } else {
-            println!(
-                "{} {:<16} {} (not found)",
+                "{} {:<16} {} ({})",
                 "✗".red(),
                 project.name,
-                project.path
+                path_display,
+                "path-conflict".red()
             );
-            invalid_count += 1;
+            issues += 1;
+            continue;
         }
+
+        if let Some(remote) = &project.remote {
+            if !remote_matches(&path, remote) {
+                println!(
+                    "{} {:<16} {} ({})",
+                    "✗".red(),
+                    project.name,
+                    path_display,
+                    "remote-mismatch".red()
+                );
+                issues += 1;
+                continue;
+            }
+        }
+
+        println!(
+            "{} {:<16} {}",
+            "✓".green(),
+            project.name,
+            path_display
+        );
     }
 
-    if invalid_count > 0 {
-        println!(
-            "\n{} projects have invalid paths.",
-            invalid_count.to_string().red()
-        );
+    if issues > 0 {
+        println!("\n{} issues found.", issues.to_string().red());
     } else {
-        println!("\nAll projects have valid paths.");
+        println!("\nAll projects are healthy.");
     }
 
     Ok(())

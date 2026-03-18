@@ -99,6 +99,10 @@ pub enum Commands {
         /// Project name
         project: String,
 
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+
         /// Move to trash
         #[arg(short, long)]
         force: bool,
@@ -112,6 +116,24 @@ pub enum Commands {
     #[command(visible_alias = "ws", subcommand)]
     Workspace(WorkspaceCommand),
 
+    /// Synchronize missing repositories from manifest
+    Sync {
+        /// Sync a single workspace
+        workspace: Option<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+
+        /// Parallel jobs
+        #[arg(long, default_value_t = 4)]
+        jobs: usize,
+    },
+
+    /// Manifest management
+    #[command(subcommand)]
+    Manifest(ManifestCommand),
+
     /// Generate shell completion script
     Completion {
         /// Shell type
@@ -119,8 +141,38 @@ pub enum Commands {
         shell: Shell,
     },
 
+    /// Show project removal history
+    History {
+        /// Maximum number of entries to show
+        #[arg(short, long, default_value_t = 20)]
+        limit: usize,
+    },
+
     /// Check all project paths
     Check,
+
+    /// Manage plugins
+    #[command(subcommand)]
+    Plugin(PluginCommand),
+}
+
+#[derive(Subcommand)]
+pub enum PluginCommand {
+    /// List installed command plugins
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Enable a plugin
+    Enable {
+        /// Plugin name
+        name: String,
+    },
+
+    /// Disable a plugin
+    Disable {
+        /// Plugin name
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -133,6 +185,10 @@ pub enum WorkspaceCommand {
     New {
         /// Workspace name
         name: String,
+
+        /// Workspace root path
+        #[arg(long)]
+        root: Option<String>,
     },
 
     /// Remove a workspace
@@ -187,6 +243,30 @@ pub enum WorkspaceCommand {
         /// Workspace name
         workspace: String,
     },
+
+    /// Configure workspace root
+    Root {
+        #[command(subcommand)]
+        command: WorkspaceRootCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceRootCommand {
+    /// Set workspace root
+    Set {
+        /// Workspace name
+        workspace: String,
+
+        /// Root path
+        path: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ManifestCommand {
+    /// Migrate legacy projects/workspaces files into manifest.json
+    Migrate,
 }
 
 #[derive(Clone, Copy, ValueEnum)]

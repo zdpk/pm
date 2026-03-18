@@ -1,25 +1,22 @@
-use crate::config::{load_workspaces, save_workspaces};
 use crate::error::PmError;
+use crate::state::{load_state, save_state};
 use anyhow::Result;
 use colored::Colorize;
 
 pub fn run(workspace: String) -> Result<()> {
-    let mut workspaces_data = load_workspaces()?;
+    let (mut config, manifest) = load_state()?;
 
-    // Check workspace exists
-    if !workspaces_data.workspaces.iter().any(|w| w.name == workspace) {
+    if !manifest.workspaces.iter().any(|ws| ws.name == workspace) {
         return Err(PmError::WorkspaceNotFound(workspace).into());
     }
 
-    // Update current workspace
-    workspaces_data.current = workspace.clone();
-    save_workspaces(&workspaces_data)?;
+    config.current_workspace = workspace.clone();
+    save_state(&config, &manifest)?;
 
     println!(
         "{} Switched to workspace '{}'",
         "✓".green(),
         workspace.cyan()
     );
-
     Ok(())
 }

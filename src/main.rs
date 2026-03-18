@@ -3,16 +3,37 @@ mod commands;
 mod config;
 mod error;
 mod git;
+mod history;
 mod models;
+mod plugin;
 mod path;
+mod restore;
+mod state;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, error::ErrorKind};
 use cli::{Cli, Commands};
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    match Cli::try_parse() {
+        Ok(cli) => dispatch(cli),
+        Err(err) => {
+            if err.kind() == ErrorKind::InvalidSubcommand {
+                let args: Vec<String> = std::env::args().collect();
+                if let Some(name) = args.get(1) {
+                    if let Some(plugin) = plugin::find_plugin(name) {
+                        let plugin_args: Vec<String> = args.into_iter().skip(2).collect();
+                        return plugin::run_plugin(&plugin, &plugin_args);
+                    }
+                }
+            }
 
+            err.exit();
+        }
+    }
+}
+
+fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { force } => commands::init::run(force),
         Commands::Add {
@@ -36,11 +57,20 @@ fn main() -> Result<()> {
         Commands::Path { target } => commands::path::run(target),
         Commands::Remove {
             project,
+            yes,
             force,
             recursive,
-        } => commands::remove::run(project, force, recursive),
+        } => commands::remove::run(project, yes, force, recursive),
         Commands::Workspace(ws_cmd) => commands::workspace::run(ws_cmd),
+        Commands::Sync {
+            workspace,
+            yes,
+            jobs,
+        } => commands::sync::run(workspace, yes, jobs),
+        Commands::Manifest(cmd) => commands::manifest::run(cmd),
         Commands::Completion { shell } => commands::completion::run(shell),
+        Commands::History { limit } => commands::history::run(limit),
         Commands::Check => commands::check::run(),
+        Commands::Plugin(command) => commands::plugin::run(command),
     }
 }

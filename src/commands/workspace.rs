@@ -1,9 +1,11 @@
-use crate::cli::WorkspaceCommand;
-use crate::config::{load_projects, load_workspaces, save_projects, save_workspaces};
+use crate::cli::{WorkspaceCommand, WorkspaceRootCommand};
 use crate::error::PmError;
 use crate::git::set_git_config;
 use crate::models::Workspace;
-use crate::path::expand_path;
+use crate::state::{
+    find_project, find_workspace, find_workspace_mut, load_state, normalized_workspace_root,
+    project_path, save_state,
+};
 use anyhow::Result;
 use colored::Colorize;
 use regex::Regex;
@@ -13,7 +15,7 @@ use std::io::{self, Write};
 pub fn run(cmd: WorkspaceCommand) -> Result<()> {
     match cmd {
         WorkspaceCommand::List => list(),
-        WorkspaceCommand::New { name } => new(name),
+        WorkspaceCommand::New { name, root } => new(name, root),
         WorkspaceCommand::Remove {
             name,
             force,
@@ -31,252 +33,146 @@ pub fn run(cmd: WorkspaceCommand) -> Result<()> {
             unset,
         } => config(workspace, key, value, list, unset),
         WorkspaceCommand::ApplyGit { workspace } => apply_git(workspace),
+        WorkspaceCommand::Root { command } => root(command),
     }
 }
 
 fn list() -> Result<()> {
-    let workspaces_data = load_workspaces()?;
+    let (config, manifest) = load_state()?;
+    println!("  {:<12} {:<8} {}", "NAME", "PROJECTS", "ROOT");
 
-    println!("  {:<12} {}", "NAME", "PROJECTS");
-
-    for ws in &workspaces_data.workspaces {
+    for ws in &manifest.workspaces {
         if ws.is_system() {
-            continue; // Hide .trash
+            continue;
         }
 
-        let marker = if ws.name == workspaces_data.current {
+        let marker = if ws.name == config.current_workspace {
             "*".green()
         } else {
             " ".normal()
         };
-
-        println!(
-            "{} {:<12} {}",
-            marker,
-            ws.name,
-            ws.projects.len()
-        );
+        let count = manifest.projects.iter().filter(|p| p.workspace == ws.name).count();
+        let root = ws.root.clone().unwrap_or_else(|| format!("{}/{}", config.base_root, ws.name));
+        println!("{} {:<12} {:<8} {}", marker, ws.name, count, root.dimmed());
     }
-
     Ok(())
 }
 
-fn new(name: String) -> Result<()> {
-    let mut workspaces_data = load_workspaces()?;
-
-    // Validate name
+fn new(name: String, root: Option<String>) -> Result<()> {
+    let (mut config, mut manifest) = load_state()?;
     let name_regex = Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]*$")?;
     if !name_regex.is_match(&name) {
         return Err(PmError::InvalidWorkspaceName(name).into());
     }
-
-    // Check if exists
-    if workspaces_data.workspaces.iter().any(|w| w.name == name) {
+    if manifest.workspaces.iter().any(|ws| ws.name == name) {
         return Err(PmError::WorkspaceExists(name).into());
     }
 
-    // Create workspace
-    let workspace = Workspace::new(name.clone());
-    workspaces_data.workspaces.push(workspace);
+    let root = match root {
+        Some(root) => Some(normalized_workspace_root(&root)?),
+        None => None,
+    };
 
-    // Switch to new workspace
-    workspaces_data.current = name.clone();
-
-    save_workspaces(&workspaces_data)?;
+    manifest.workspaces.push(Workspace::new(name.clone(), root));
+    config.current_workspace = name.clone();
+    save_state(&config, &manifest)?;
 
     println!("{} Created workspace '{}'", "✓".green(), name.cyan());
     println!("{} Switched to '{}'", "✓".green(), name.cyan());
-
     Ok(())
 }
 
 fn remove(name: String, force: bool, recursive: bool) -> Result<()> {
-    let mut workspaces_data = load_workspaces()?;
-    let mut projects_data = load_projects()?;
-
-    // Cannot remove default
+    let (mut config, mut manifest) = load_state()?;
     if name == "default" {
         return Err(PmError::CannotRemoveDefault.into());
     }
-
-    // Cannot remove system workspaces
     if name.starts_with('.') {
         return Err(PmError::CannotRemoveSystem(name).into());
     }
 
-    // Find workspace
-    let ws_idx = workspaces_data
-        .workspaces
+    let _ = find_workspace(&manifest, &name)?;
+    let project_names: Vec<String> = manifest
+        .projects
         .iter()
-        .position(|w| w.name == name)
-        .ok_or_else(|| PmError::WorkspaceNotFound(name.clone()))?;
-
-    let ws = &workspaces_data.workspaces[ws_idx];
-    let project_names: Vec<String> = ws.projects.clone();
+        .filter(|project| project.workspace == name)
+        .map(|project| project.name.clone())
+        .collect();
 
     if recursive {
-        // -rf: Delete project files too
         if !force {
             return Err(anyhow::anyhow!("-r requires -f flag"));
         }
-
         if !project_names.is_empty() {
             println!(
-                "{} This will permanently delete workspace '{}' and all files:",
+                "{} This will permanently delete workspace '{}' and all tracked directories:",
                 "⚠".yellow(),
                 name
             );
-
-            for pname in &project_names {
-                if let Some(p) = projects_data.projects.iter().find(|p| &p.name == pname) {
-                    println!("  - {} ({})", pname, p.path);
-                }
+            for project_name in &project_names {
+                let project = find_project(&manifest, project_name)?;
+                let path = project_path(&config, &manifest, project)?;
+                println!("  - {} ({})", project_name, path.display());
             }
 
             print!("\nType workspace name to confirm: ");
             io::stdout().flush()?;
-
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
-
             if input.trim() != name {
                 println!("Aborted.");
                 return Ok(());
             }
 
-            // Delete files
-            for pname in &project_names {
-                if let Some(p) = projects_data.projects.iter().find(|p| &p.name == pname) {
-                    let expanded = expand_path(&p.path);
-                    if expanded.exists() {
-                        fs::remove_dir_all(&expanded)?;
-                    }
+            for project_name in &project_names {
+                let project = find_project(&manifest, project_name)?;
+                let path = project_path(&config, &manifest, project)?;
+                if path.exists() {
+                    fs::remove_dir_all(path)?;
                 }
             }
-
-            // Remove projects from data
-            projects_data.projects.retain(|p| !project_names.contains(&p.name));
         }
-
-        // Remove workspace
-        workspaces_data.workspaces.remove(ws_idx);
-
-        println!(
-            "{} Deleted workspace '{}' and all project files",
-            "✓".green(),
-            name.cyan()
-        );
+        manifest.projects.retain(|project| project.workspace != name);
     } else if force {
-        // -f: Unregister projects (keep files)
-        if !project_names.is_empty() {
-            print!(
-                "{} {} projects will be unregistered (files kept).\nContinue? [y/N] ",
-                "⚠".yellow(),
-                project_names.len()
-            );
-            io::stdout().flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-
-            if !input.trim().eq_ignore_ascii_case("y") {
-                println!("Aborted.");
-                return Ok(());
-            }
-
-            // Remove projects from data
-            projects_data.projects.retain(|p| !project_names.contains(&p.name));
-        }
-
-        // Remove workspace
-        workspaces_data.workspaces.remove(ws_idx);
-
-        println!("{} Removed workspace '{}'", "✓".green(), name.cyan());
+        manifest.projects.retain(|project| project.workspace != name);
     } else {
-        // No flags: Move projects to trash
-        if !project_names.is_empty() {
-            print!(
-                "{} {} projects will be moved to trash.\nContinue? [y/N] ",
-                "⚠".yellow(),
-                project_names.len()
-            );
-            io::stdout().flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-
-            if !input.trim().eq_ignore_ascii_case("y") {
-                println!("Aborted.");
-                return Ok(());
-            }
-
-            // Move projects to .trash
-            if let Some(trash) = workspaces_data
-                .workspaces
-                .iter_mut()
-                .find(|w| w.name == ".trash")
-            {
-                for pname in &project_names {
-                    if !trash.projects.contains(pname) {
-                        trash.projects.push(pname.clone());
-                    }
-                }
+        for project in &mut manifest.projects {
+            if project.workspace == name {
+                project.workspace = ".trash".to_string();
             }
         }
-
-        // Remove workspace
-        workspaces_data.workspaces.remove(ws_idx);
-
-        println!("{} Removed workspace '{}'", "✓".green(), name.cyan());
     }
 
-    // Switch to default if current was removed
-    if workspaces_data.current == name {
-        workspaces_data.current = "default".to_string();
+    manifest.workspaces.retain(|ws| ws.name != name);
+    if config.current_workspace == name {
+        config.current_workspace = "default".to_string();
+        config.current_project = None;
     }
-
-    save_workspaces(&workspaces_data)?;
-    save_projects(&projects_data)?;
-
+    save_state(&config, &manifest)?;
+    println!("{} Removed workspace '{}'", "✓".green(), name.cyan());
     Ok(())
 }
 
 fn move_projects(projects: Vec<String>, workspace: String) -> Result<()> {
-    let mut workspaces_data = load_workspaces()?;
+    let (config, mut manifest) = load_state()?;
+    let _ = find_workspace(&manifest, &workspace)?;
 
-    // Check target workspace exists
-    if !workspaces_data.workspaces.iter().any(|w| w.name == workspace) {
-        return Err(PmError::WorkspaceNotFound(workspace).into());
+    for project_name in &projects {
+        let project = manifest
+            .projects
+            .iter_mut()
+            .find(|project| project.name == *project_name)
+            .ok_or_else(|| PmError::ProjectNotFound(project_name.clone()))?;
+        project.workspace = workspace.clone();
     }
 
-    // Remove from current workspaces and add to target
-    for ws in &mut workspaces_data.workspaces {
-        for project in &projects {
-            ws.projects.retain(|n| n != project);
-        }
-    }
-
-    if let Some(target_ws) = workspaces_data
-        .workspaces
-        .iter_mut()
-        .find(|w| w.name == workspace)
-    {
-        for project in &projects {
-            if !target_ws.projects.contains(project) {
-                target_ws.projects.push(project.clone());
-            }
-        }
-    }
-
-    save_workspaces(&workspaces_data)?;
-
+    save_state(&config, &manifest)?;
     println!(
         "{} Moved {} project(s) to '{}'",
         "✓".green(),
         projects.len(),
         workspace.cyan()
     );
-
     Ok(())
 }
 
@@ -287,91 +183,90 @@ fn config(
     list: bool,
     unset: Option<String>,
 ) -> Result<()> {
-    let mut workspaces_data = load_workspaces()?;
-
-    let ws = workspaces_data
-        .workspaces
-        .iter_mut()
-        .find(|w| w.name == workspace)
-        .ok_or_else(|| PmError::WorkspaceNotFound(workspace.clone()))?;
+    let (config, mut manifest) = load_state()?;
+    let ws = find_workspace_mut(&mut manifest, &workspace)?;
 
     if list {
-        // List all config
         if ws.git.is_empty() {
             println!("No git config set for workspace '{}'", workspace);
         } else {
-            for (k, v) in &ws.git {
-                println!("{} = {}", k, v);
+            for (key, value) in &ws.git {
+                println!("{} = {}", key, value);
             }
         }
-    } else if let Some(key_to_unset) = unset {
-        // Unset a key
-        if ws.git.remove(&key_to_unset).is_some() {
-            save_workspaces(&workspaces_data)?;
-            println!(
-                "{} Unset {} for workspace '{}'",
-                "✓".green(),
-                key_to_unset,
-                workspace.cyan()
-            );
-        } else {
-            println!("Key '{}' not found", key_to_unset);
-        }
-    } else if let (Some(k), Some(v)) = (key, value) {
-        // Set a key
-        ws.git.insert(k.clone(), v);
-        save_workspaces(&workspaces_data)?;
-        println!(
-            "{} Set {} for workspace '{}'",
-            "✓".green(),
-            k,
-            workspace.cyan()
-        );
-    } else {
-        println!("Usage: pm ws config <workspace> <key> <value>");
-        println!("       pm ws config <workspace> --list");
-        println!("       pm ws config <workspace> --unset <key>");
+        return Ok(());
     }
 
+    if let Some(key) = unset {
+        ws.git.remove(&key);
+        save_state(&config, &manifest)?;
+        println!("{} Unset {} for workspace '{}'", "✓".green(), key, workspace.cyan());
+        return Ok(());
+    }
+
+    if let (Some(key), Some(value)) = (key, value) {
+        ws.git.insert(key.clone(), value.clone());
+        save_state(&config, &manifest)?;
+        println!("{} Set {} for workspace '{}'", "✓".green(), key, workspace.cyan());
+        return Ok(());
+    }
+
+    println!("Usage: pm ws config <workspace> <key> <value>");
+    println!("       pm ws config <workspace> --list");
+    println!("       pm ws config <workspace> --unset <key>");
     Ok(())
 }
 
 fn apply_git(workspace: String) -> Result<()> {
-    let workspaces_data = load_workspaces()?;
-    let projects_data = load_projects()?;
-
-    let ws = workspaces_data
-        .workspaces
-        .iter()
-        .find(|w| w.name == workspace)
-        .ok_or_else(|| PmError::WorkspaceNotFound(workspace.clone()))?;
-
+    let (config, manifest) = load_state()?;
+    let ws = find_workspace(&manifest, &workspace)?;
     if ws.git.is_empty() {
         println!("No git config set for workspace '{}'", workspace);
         return Ok(());
     }
 
     let mut applied_count = 0;
-
-    for project_name in &ws.projects {
-        if let Some(project) = projects_data.projects.iter().find(|p| &p.name == project_name) {
-            for (key, value) in &ws.git {
-                if let Err(e) = set_git_config(&project.path, key, value) {
-                    println!(
-                        "{} Failed to apply config to '{}': {}",
-                        "✗".red(),
-                        project_name,
-                        e
-                    );
-                    continue;
-                }
-            }
-            println!("{} Applied git config to '{}'", "✓".green(), project_name);
-            applied_count += 1;
+    for project in manifest.projects.iter().filter(|p| p.workspace == workspace) {
+        let path = project_path(&config, &manifest, project)?;
+        if !path.exists() {
+            println!(
+                "{} Skipped '{}' because {} is missing",
+                "⚠".yellow(),
+                project.name,
+                path.display()
+            );
+            continue;
         }
+
+        for (key, value) in &ws.git {
+            if let Err(err) = set_git_config(&path.display().to_string(), key, value) {
+                println!(
+                    "{} Failed to apply config to '{}': {}",
+                    "✗".red(),
+                    project.name,
+                    err
+                );
+            }
+        }
+        applied_count += 1;
+        println!("{} Applied git config to '{}'", "✓".green(), project.name);
     }
 
     println!("\nApplied to {} projects.", applied_count);
+    Ok(())
+}
 
+fn root(command: WorkspaceRootCommand) -> Result<()> {
+    match command {
+        WorkspaceRootCommand::Set { workspace, path } => set_root(workspace, path),
+    }
+}
+
+fn set_root(workspace: String, path: String) -> Result<()> {
+    let (config, mut manifest) = load_state()?;
+    let ws = find_workspace_mut(&mut manifest, &workspace)?;
+    ws.root = Some(normalized_workspace_root(&path)?);
+    save_state(&config, &manifest)?;
+    println!("{} Set root for workspace '{}'", "✓".green(), workspace.cyan());
     Ok(())
 }

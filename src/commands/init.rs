@@ -1,8 +1,9 @@
 use crate::config::{
-    config_dir, config_path, is_initialized, projects_path, workspaces_path,
+    config_dir, config_path, history_path, is_initialized, manifest_path, projects_path,
+    workspaces_path,
 };
 use crate::error::PmError;
-use crate::models::{Config, ProjectsData, WorkspacesData};
+use crate::models::{Config, HistoryData, Manifest};
 use anyhow::Result;
 use colored::Colorize;
 use std::fs;
@@ -22,37 +23,30 @@ pub fn run(force: bool) -> Result<()> {
 
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
-
         if !input.trim().eq_ignore_ascii_case("y") {
             println!("Aborted.");
             return Ok(());
         }
     }
 
-    // Create config directory
     let dir = config_dir();
     fs::create_dir_all(&dir)?;
     println!("{} Created {}", "✓".green(), dir.display());
 
-    // Create config.json
-    let config = Config::default();
-    let config_content = serde_json::to_string_pretty(&config)?;
-    fs::write(config_path(), config_content)?;
+    fs::write(config_path(), serde_json::to_string_pretty(&Config::default())?)?;
     println!("{} Created config.json", "✓".green());
 
-    // Create projects.json
-    let projects = ProjectsData::default();
-    let projects_content = serde_json::to_string_pretty(&projects)?;
-    fs::write(projects_path(), projects_content)?;
-    println!("{} Created projects.json", "✓".green());
+    fs::write(manifest_path(), serde_json::to_string_pretty(&Manifest::default())?)?;
+    println!("{} Created manifest.json", "✓".green());
 
-    // Create workspaces.json
-    let workspaces = WorkspacesData::default();
-    let workspaces_content = serde_json::to_string_pretty(&workspaces)?;
-    fs::write(workspaces_path(), workspaces_content)?;
-    println!("{} Created workspaces.json", "✓".green());
+    fs::write(history_path(), serde_json::to_string_pretty(&HistoryData::default())?)?;
+    println!("{} Created history.json", "✓".green());
+
+    if force {
+        let _ = fs::remove_file(projects_path());
+        let _ = fs::remove_file(workspaces_path());
+    }
 
     println!("\n{}", "PM initialized successfully!".green().bold());
-
     Ok(())
 }

@@ -1,10 +1,14 @@
 pub mod add;
 pub mod check;
 pub mod completion;
+pub mod history;
 pub mod init;
 pub mod list;
+pub mod manifest;
 pub mod path;
+pub mod plugin;
 pub mod remove;
+pub mod sync;
 pub mod switch;
 pub mod use_ws;
 pub mod workspace;
