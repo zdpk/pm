@@ -1,0 +1,10 @@
+[plugin]
+name = "skills"
+version = "0.1.0"
+description = "AI agent skill manager — registry, deploy, sync"
+language = "py"
+entry = "main.py"
+
+[command]
+usage = "pm skills <subcommand> [options]"
+aliases = ["sk"]

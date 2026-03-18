@@ -1,4 +1,4 @@
-.PHONY: dev release install clean test check fmt
+.PHONY: dev release install install-skills-plugin clean test check fmt
 
 # Development build (debug)
 dev:
@@ -17,6 +17,10 @@ install-dev:
 # Install to ~/.cargo/bin
 install:
 	cargo install --path . --bin pm --force
+
+# Install the bundled skills plugin into the active PM config directory
+install-skills-plugin:
+	./scripts/install-skills-plugin.sh
 
 # Run tests
 test:
