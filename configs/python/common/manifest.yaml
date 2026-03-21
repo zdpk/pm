@@ -1,0 +1,11 @@
+files:
+  - path: ruff.toml
+    strategy: managed
+  - path: pyproject.toml
+    strategy: template
+  - path: .gitignore
+    strategy: merged
+  - path: .vscode/settings.json
+    strategy: merged
+  - path: .vscode/extensions.json
+    strategy: merged

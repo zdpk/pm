@@ -1,0 +1,8 @@
+__pycache__/
+.venv/
+.git/
+*.md
+.env*
+.vscode/
+.ruff_cache/
+.pytest_cache/

@@ -1,0 +1,7 @@
+files:
+  - path: nest-cli.json
+    strategy: template
+  - path: Dockerfile
+    strategy: template
+  - path: .dockerignore
+    strategy: managed

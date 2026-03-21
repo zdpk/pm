@@ -1,0 +1,11 @@
+files:
+  - path: rustfmt.toml
+    strategy: managed
+  - path: clippy.toml
+    strategy: managed
+  - path: .gitignore
+    strategy: merged
+  - path: .vscode/settings.json
+    strategy: merged
+  - path: .vscode/extensions.json
+    strategy: merged

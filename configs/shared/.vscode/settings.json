@@ -1,0 +1,10 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": null,
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit"
+  },
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true
+}

@@ -1,0 +1,28 @@
+meta:
+  version: 1
+
+languages:
+  - id: rust
+    name: Rust
+    markers: [Cargo.toml]
+    frameworks: [axum, clap]
+
+  - id: ts
+    name: TypeScript
+    markers: [package.json]
+    frameworks: [nextjs, nestjs]
+
+  - id: python
+    name: Python
+    markers: [pyproject.toml, requirements.txt]
+    frameworks: [fastapi]
+
+  - id: dart
+    name: Dart
+    markers: [pubspec.yaml]
+    frameworks: [flutter]
+
+  - id: c
+    name: C
+    markers: [Makefile, CMakeLists.txt, "*.c"]
+    frameworks: []

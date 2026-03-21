@@ -1,0 +1,5 @@
+files:
+  - path: Dockerfile
+    strategy: template
+  - path: .dockerignore
+    strategy: managed

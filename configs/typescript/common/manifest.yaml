@@ -1,0 +1,11 @@
+files:
+  - path: .prettierrc
+    strategy: managed
+  - path: tsconfig.json
+    strategy: template
+  - path: .gitignore
+    strategy: merged
+  - path: .vscode/settings.json
+    strategy: merged
+  - path: .vscode/extensions.json
+    strategy: merged
