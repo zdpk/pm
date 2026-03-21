@@ -19,6 +19,7 @@ toml = "0.8"
 
 # Git Operations
 git2 = "0.20"
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 # Error Handling
 anyhow = "1.0"

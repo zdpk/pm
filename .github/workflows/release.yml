@@ -39,9 +39,7 @@ jobs:
 
       - name: Build (cross)
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
-        env:
-          CROSS_CONTAINER_OPTS: "--platform linux/amd64"
+        run: cross build --release --target ${{ matrix.target }} --features openssl/vendored
 
       - name: Install system deps (Linux native)
         if: matrix.os == 'ubuntu-latest' && !matrix.cross
