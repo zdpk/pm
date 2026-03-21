@@ -9,6 +9,7 @@ pub mod path;
 pub mod plugin;
 pub mod project;
 pub mod remove;
+pub mod upgrade;
 pub mod sync;
 pub mod switch;
 pub mod use_ws;

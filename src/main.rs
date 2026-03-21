@@ -74,5 +74,6 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Check => commands::check::run(),
         Commands::Plugin(command) => commands::plugin::run(command),
         Commands::Project(cmd) => commands::project::run(cmd),
+        Commands::Upgrade => commands::upgrade::run(),
     }
 }

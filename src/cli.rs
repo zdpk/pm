@@ -158,6 +158,9 @@ pub enum Commands {
     /// Project config file management
     #[command(visible_alias = "p", subcommand)]
     Project(ProjectCommand),
+
+    /// Upgrade PM to the latest version
+    Upgrade,
 }
 
 #[derive(Subcommand)]
