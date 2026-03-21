@@ -7,6 +7,7 @@ pub mod list;
 pub mod manifest;
 pub mod path;
 pub mod plugin;
+pub mod proj;
 pub mod remove;
 pub mod sync;
 pub mod switch;

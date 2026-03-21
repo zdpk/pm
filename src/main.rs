@@ -7,6 +7,7 @@ mod history;
 mod models;
 mod plugin;
 mod path;
+mod proj;
 mod restore;
 mod state;
 
@@ -72,5 +73,6 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::History { limit } => commands::history::run(limit),
         Commands::Check => commands::check::run(),
         Commands::Plugin(command) => commands::plugin::run(command),
+        Commands::Project(cmd) => commands::proj::run(cmd),
     }
 }

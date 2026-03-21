@@ -47,6 +47,28 @@ pub enum PmError {
     #[error("Non-interactive mode cannot restore missing project '{0}'. Run 'pm sw {0}' in a TTY or 'pm sync'.")]
     NonInteractiveRestore(String),
 
+    #[error("Config repo not configured. Set config_repo in config.json.")]
+    ConfigRepoNotConfigured,
+
+    #[allow(dead_code)]
+    #[error("Config repo not found at '{0}'. Run 'pm project update'.")]
+    ConfigRepoCacheMissing(String),
+
+    #[error("No .project.yaml found. Run 'pm project init' first.")]
+    ProjNotInitialized,
+
+    #[error("Unsupported language: '{0}'")]
+    UnsupportedLanguage(String),
+
+    #[error("Unsupported framework '{0}' for language '{1}'")]
+    UnsupportedFramework(String, String),
+
+    #[error("Config repo update failed: {0}")]
+    ConfigRepoUpdateFailed(String),
+
+    #[error("TOML parse error: {0}")]
+    Toml(#[from] toml::de::Error),
+
     #[error("Git error: {0}")]
     Git(#[from] git2::Error),
 

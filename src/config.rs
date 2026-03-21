@@ -195,6 +195,7 @@ pub fn migrate_legacy_data() -> Result<Manifest> {
             added_at: legacy_project.added_at,
             last_accessed: legacy_project.last_accessed,
             access_count: legacy_project.access_count,
+            proj: None,
         });
     }
 

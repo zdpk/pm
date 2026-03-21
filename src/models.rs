@@ -28,6 +28,9 @@ pub struct Config {
 
     #[serde(default)]
     pub current_project: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_repo: Option<ConfigRepoSettings>,
 }
 
 fn default_editor() -> String {
@@ -57,8 +60,33 @@ impl Default for Config {
             base_root: default_base_root(),
             current_workspace: default_workspace(),
             current_project: None,
+            config_repo: None,
         }
     }
+}
+
+/// Config repo settings for proj config management
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigRepoSettings {
+    pub url: String,
+
+    #[serde(default = "default_config_repo_cache")]
+    pub cache_dir: String,
+}
+
+fn default_config_repo_cache() -> String {
+    "~/.config/pm/config-repo".to_string()
+}
+
+/// Cached proj metadata stored in manifest.json per project
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjMeta {
+    pub language: String,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+
+    pub config_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -228,6 +256,9 @@ pub struct Project {
 
     #[serde(default)]
     pub access_count: u32,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proj: Option<ProjMeta>,
 }
 
 impl Project {
@@ -244,6 +275,7 @@ impl Project {
             added_at: now,
             last_accessed: now,
             access_count: 0,
+            proj: None,
         }
     }
 }

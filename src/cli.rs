@@ -154,6 +154,83 @@ pub enum Commands {
     /// Manage plugins
     #[command(subcommand)]
     Plugin(PluginCommand),
+
+    /// Project config file management
+    #[command(visible_alias = "p", subcommand)]
+    Project(ProjectCommand),
+}
+
+#[derive(Subcommand)]
+pub enum ProjectCommand {
+    /// Initialize project with config files from the config repo
+    Init {
+        /// Language (rust, ts, python, dart, c)
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Framework (axum, clap, nextjs, nestjs, fastapi, flutter)
+        #[arg(short, long)]
+        framework: Option<String>,
+
+        /// Include CI/CD workflows
+        #[arg(long)]
+        ci: bool,
+
+        /// Include Dockerfile
+        #[arg(long)]
+        docker: bool,
+
+        /// Include pre-commit hooks
+        #[arg(long)]
+        hooks: bool,
+
+        /// Include everything (ci + docker + hooks)
+        #[arg(long, conflicts_with_all = ["ci", "docker", "hooks"])]
+        all: bool,
+
+        /// Skip all prompts (non-interactive mode)
+        #[arg(short = 'y', long = "no-interactive")]
+        yes: bool,
+    },
+
+    /// Sync config files to latest config repo version
+    Sync {
+        /// Sync all registered projects
+        #[arg(long)]
+        all: bool,
+
+        /// Preview changes without applying
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Check if config files are outdated
+    Check {
+        /// Check all registered projects
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Show diff between local and upstream config files
+    Diff,
+
+    /// Pull latest config repo
+    Update,
+
+    /// Register project for config management (without copying files)
+    Add {
+        /// Language (rust, ts, python, dart, c)
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Framework (axum, clap, nextjs, nestjs, fastapi, flutter)
+        #[arg(short, long)]
+        framework: Option<String>,
+    },
+
+    /// List projects managed by proj
+    #[command(visible_alias = "ls")]
+    List,
 }
 
 #[derive(Subcommand)]
