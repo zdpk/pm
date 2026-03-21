@@ -1,7 +1,7 @@
 use crate::cli::ProjectCommand;
 use crate::error::PmError;
 use crate::models::ProjMeta;
-use crate::proj::{self, FileStrategy, ProjConfig};
+use crate::project::{self as proj, FileStrategy, ProjConfig};
 use crate::restore;
 use crate::state::{self, find_project_mut};
 use anyhow::Result;
