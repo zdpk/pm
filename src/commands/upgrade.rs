@@ -10,15 +10,16 @@ const REPO_NAME: &str = "pm";
 pub fn run() -> Result<()> {
     let current_version = env!("CARGO_PKG_VERSION");
     println!("Current version: v{current_version}");
+    let current_version = Version::parse(current_version)
+        .ok_or_else(|| anyhow::anyhow!("Invalid current version: {current_version}"))?;
 
-    // Fetch latest release tag from GitHub API
     println!("Checking for updates...");
-    let latest = fetch_latest_version()?;
+    let releases = fetch_releases()?;
 
-    if latest.tag == format!("v{current_version}") {
-        println!("{} Already on the latest version.", "✓".green());
+    let Some(latest) = select_latest_update(releases, current_version) else {
+        println!("{} No newer release found.", "✓".green());
         return Ok(());
-    }
+    };
 
     println!("New version available: {}", latest.tag.bold());
 
@@ -106,20 +107,64 @@ struct AssetInfo {
     url: String,
 }
 
-fn fetch_latest_version() -> Result<ReleaseInfo> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Version {
+    major: u64,
+    minor: u64,
+    patch: u64,
+}
+
+impl Version {
+    fn parse(value: &str) -> Option<Self> {
+        let value = value.strip_prefix('v').unwrap_or(value);
+        let value = value.split_once('+').map_or(value, |(version, _)| version);
+        if value.contains('-') {
+            return None;
+        }
+
+        let mut parts = value.split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        let patch = parts.next()?.parse().ok()?;
+        if parts.next().is_some() {
+            return None;
+        }
+
+        Some(Self {
+            major,
+            minor,
+            patch,
+        })
+    }
+}
+
+fn select_latest_update(
+    releases: Vec<ReleaseInfo>,
+    current_version: Version,
+) -> Option<ReleaseInfo> {
+    releases
+        .into_iter()
+        .filter_map(|release| {
+            let version = Version::parse(&release.tag)?;
+            (version > current_version).then_some((version, release))
+        })
+        .max_by_key(|(version, _)| *version)
+        .map(|(_, release)| release)
+}
+
+fn fetch_releases() -> Result<Vec<ReleaseInfo>> {
     let output = Command::new("gh")
         .args([
             "api",
-            &format!("repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"),
+            &format!("repos/{REPO_OWNER}/{REPO_NAME}/releases?per_page=100"),
             "--jq",
-            r#".tag_name as $tag | .assets | map({name: .name, url: .browser_download_url}) | {tag: $tag, assets: .}"#,
+            r#"map(select((.draft | not) and (.prerelease | not)) | {tag: .tag_name, assets: (.assets | map({name: .name, url: .browser_download_url}))})"#,
         ])
         .output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // Fallback: try without gh (curl)
-        return fetch_latest_version_curl().map_err(|_| {
+        return fetch_releases_curl().map_err(|_| {
             anyhow::anyhow!(
                 "Failed to check for updates. Install `gh` CLI or check network.\n{stderr}"
             )
@@ -127,14 +172,14 @@ fn fetch_latest_version() -> Result<ReleaseInfo> {
     }
 
     let stdout = String::from_utf8(output.stdout)?;
-    parse_release_json(&stdout)
+    parse_releases_json(&stdout)
 }
 
-fn fetch_latest_version_curl() -> Result<ReleaseInfo> {
+fn fetch_releases_curl() -> Result<Vec<ReleaseInfo>> {
     let output = Command::new("curl")
         .args([
             "-sL",
-            &format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"),
+            &format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases?per_page=100"),
         ])
         .output()?;
 
@@ -143,49 +188,47 @@ fn fetch_latest_version_curl() -> Result<ReleaseInfo> {
     }
 
     let stdout = String::from_utf8(output.stdout)?;
-    let json: serde_json::Value = serde_json::from_str(&stdout)?;
-
-    let tag = json["tag_name"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No tag_name in response"))?
-        .to_string();
-
-    let assets = json["assets"]
-        .as_array()
-        .unwrap_or(&Vec::new())
-        .iter()
-        .filter_map(|a| {
-            Some(AssetInfo {
-                name: a["name"].as_str()?.to_string(),
-                url: a["browser_download_url"].as_str()?.to_string(),
-            })
-        })
-        .collect();
-
-    Ok(ReleaseInfo { tag, assets })
+    parse_releases_json(&stdout)
 }
 
-fn parse_release_json(json_str: &str) -> Result<ReleaseInfo> {
+fn parse_releases_json(json_str: &str) -> Result<Vec<ReleaseInfo>> {
     let json: serde_json::Value = serde_json::from_str(json_str)?;
-
-    let tag = json["tag"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No tag in response"))?
-        .to_string();
-
-    let assets = json["assets"]
+    let releases = json
         .as_array()
-        .unwrap_or(&Vec::new())
+        .ok_or_else(|| anyhow::anyhow!("Expected release list response"))?;
+
+    let releases = releases
         .iter()
-        .filter_map(|a| {
-            Some(AssetInfo {
-                name: a["name"].as_str()?.to_string(),
-                url: a["url"].as_str()?.to_string(),
-            })
+        .filter(|release| {
+            !release["draft"].as_bool().unwrap_or(false)
+                && !release["prerelease"].as_bool().unwrap_or(false)
+        })
+        .filter_map(|release| {
+            let tag = release["tag"]
+                .as_str()
+                .or_else(|| release["tag_name"].as_str())?
+                .to_string();
+
+            let assets = release["assets"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter_map(|asset| {
+                    Some(AssetInfo {
+                        name: asset["name"].as_str()?.to_string(),
+                        url: asset["url"]
+                            .as_str()
+                            .or_else(|| asset["browser_download_url"].as_str())?
+                            .to_string(),
+                    })
+                })
+                .collect();
+
+            Some(ReleaseInfo { tag, assets })
         })
         .collect();
 
-    Ok(ReleaseInfo { tag, assets })
+    Ok(releases)
 }
 
 fn detect_target() -> Result<String> {
@@ -219,4 +262,70 @@ fn download_file(url: &str, dest: &std::path::Path) -> Result<()> {
         return Err(anyhow::anyhow!("Download failed: {url}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn release(tag: &str) -> ReleaseInfo {
+        ReleaseInfo {
+            tag: tag.to_string(),
+            assets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn parses_stable_versions() {
+        assert_eq!(
+            Version::parse("0.2.0"),
+            Some(Version {
+                major: 0,
+                minor: 2,
+                patch: 0
+            })
+        );
+        assert_eq!(
+            Version::parse("v1.2.3"),
+            Some(Version {
+                major: 1,
+                minor: 2,
+                patch: 3
+            })
+        );
+        assert_eq!(
+            Version::parse("v1.2.3+build.1"),
+            Some(Version {
+                major: 1,
+                minor: 2,
+                patch: 3
+            })
+        );
+        assert_eq!(Version::parse("v1.2.3-beta.1"), None);
+    }
+
+    #[test]
+    fn ignores_releases_not_newer_than_current() {
+        let current = Version::parse("0.2.0").unwrap();
+        let selected = select_latest_update(vec![release("v0.1.0"), release("v0.2.0")], current);
+
+        assert!(selected.is_none());
+    }
+
+    #[test]
+    fn selects_highest_newer_stable_release() {
+        let current = Version::parse("0.2.0").unwrap();
+        let selected = select_latest_update(
+            vec![
+                release("v0.2.1"),
+                release("v0.3.0-beta.1"),
+                release("v0.1.9"),
+                release("v0.2.2"),
+            ],
+            current,
+        )
+        .unwrap();
+
+        assert_eq!(selected.tag, "v0.2.2");
+    }
 }
