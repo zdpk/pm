@@ -70,6 +70,8 @@ fn dispatch(cli: Cli) -> Result<()> {
         } => commands::sync::run(workspace, yes, jobs),
         Commands::Manifest(cmd) => commands::manifest::run(cmd),
         Commands::Repo(repo_cmd) => commands::repo::run(repo_cmd),
+        Commands::Ports(ports_cmd) => commands::ports::run(ports_cmd),
+        Commands::Run { project, command } => commands::run::run(project, command),
         Commands::Completion { shell } => commands::completion::run(shell),
         Commands::History { limit } => commands::history::run(limit),
         Commands::Check => commands::check::run(),

@@ -1,3 +1,4 @@
+use crate::models::PortKind;
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
@@ -137,6 +138,20 @@ pub enum Commands {
     /// Repo spec version tracking
     #[command(subcommand)]
     Repo(RepoCommand),
+
+    /// Local port management
+    #[command(subcommand)]
+    Ports(PortsCommand),
+
+    /// Run a command with project port environment overrides
+    Run {
+        /// Project name (default: current project)
+        project: Option<String>,
+
+        /// Command to execute after --
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
 
     /// Generate shell completion script
     Completion {
@@ -390,6 +405,73 @@ pub enum RepoSpecCommand {
     Show {
         /// Repo spec id
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PortsCommand {
+    /// List allocated ports
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Assign stable ports to a project
+    Assign {
+        /// Project name (default: current project)
+        project: Option<String>,
+
+        /// Service kind to assign (repeatable)
+        #[arg(short, long, value_enum)]
+        kind: Vec<PortKind>,
+
+        /// Reassign even if a port already exists
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Check port allocations
+    Check {
+        /// Project name (default: current project)
+        project: Option<String>,
+
+        /// Check all projects
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Repair duplicate port allocations
+    Repair {
+        /// Project name (default: current project)
+        project: Option<String>,
+    },
+
+    /// Release project port allocations
+    Release {
+        /// Project name (default: current project)
+        project: Option<String>,
+
+        /// Service kind to release (repeatable; default: all)
+        #[arg(short, long, value_enum)]
+        kind: Vec<PortKind>,
+    },
+
+    /// Lock a service port against automatic repair
+    Lock {
+        /// Project name (default: current project)
+        project: Option<String>,
+
+        /// Service key such as back, front, db, redis, infra
+        #[arg(long)]
+        service: String,
+    },
+
+    /// Unlock a service port
+    Unlock {
+        /// Project name (default: current project)
+        project: Option<String>,
+
+        /// Service key such as back, front, db, redis, infra
+        #[arg(long)]
+        service: String,
     },
 }
 

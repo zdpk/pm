@@ -1,7 +1,7 @@
 use crate::error::PmError;
 use crate::models::{
-    Config, HistoryData, LegacyProjectsData, LegacyWorkspacesData, Manifest, Project, RepoSpec,
-    Workspace,
+    Config, HistoryData, LegacyProjectsData, LegacyWorkspacesData, Manifest, PortsData, Project,
+    RepoSpec, Workspace,
 };
 use crate::path::{collapse_path, expand_path};
 use anyhow::Result;
@@ -47,6 +47,10 @@ pub fn history_path() -> PathBuf {
     config_dir().join("history.json")
 }
 
+pub fn ports_path() -> PathBuf {
+    config_dir().join("ports.json")
+}
+
 pub fn repo_specs_dir() -> PathBuf {
     config_dir().join("repo-specs")
 }
@@ -83,6 +87,26 @@ pub fn load_config() -> Result<Config> {
 pub fn save_config(config: &Config) -> Result<()> {
     let content = serde_json::to_string_pretty(config)?;
     fs::write(config_path(), content)?;
+    Ok(())
+}
+
+// ──────────────────────────────────────────────
+// Ports (global)
+// ──────────────────────────────────────────────
+
+pub fn load_ports() -> Result<PortsData> {
+    ensure_initialized()?;
+    let path = ports_path();
+    if !path.exists() {
+        return Ok(PortsData::default());
+    }
+    let content = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&content)?)
+}
+
+pub fn save_ports(ports: &PortsData) -> Result<()> {
+    let content = serde_json::to_string_pretty(ports)?;
+    fs::write(ports_path(), content)?;
     Ok(())
 }
 

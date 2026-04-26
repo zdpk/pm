@@ -1,9 +1,9 @@
 use crate::config::{
-    config_dir, config_path, history_path, is_initialized, manifest_path, projects_path,
-    repo_specs_dir, workspaces_path,
+    config_dir, config_path, history_path, is_initialized, manifest_path, ports_path,
+    projects_path, repo_specs_dir, workspaces_path,
 };
 use crate::error::PmError;
-use crate::models::{Config, HistoryData, Manifest, RepoSpec};
+use crate::models::{Config, HistoryData, Manifest, PortsData, RepoSpec};
 use anyhow::Result;
 use colored::Colorize;
 use std::fs;
@@ -12,13 +12,14 @@ use std::io::{self, Write};
 pub fn run(force: bool) -> Result<()> {
     if is_initialized() && !force {
         ensure_repo_specs_dir()?;
+        ensure_ports_file()?;
         return Err(PmError::AlreadyInitialized.into());
     }
 
     if is_initialized() && force {
         print!(
             "{} Existing configuration will be overwritten.\nContinue? [y/N] ",
-            "⚠".yellow()
+            "!".yellow()
         );
         io::stdout().flush()?;
 
@@ -53,6 +54,7 @@ pub fn run(force: bool) -> Result<()> {
     println!("{} Created history.json", "✓".green());
 
     ensure_repo_specs_dir()?;
+    ensure_ports_file()?;
 
     if force {
         let _ = fs::remove_file(projects_path());
@@ -78,6 +80,17 @@ fn ensure_repo_specs_dir() -> Result<()> {
         };
         fs::write(default_spec_path, serde_json::to_string_pretty(&spec)?)?;
         println!("{} Created repo-specs/rust-axum-sqlx-backend.json", "✓".green());
+    }
+
+    Ok(())
+}
+
+fn ensure_ports_file() -> Result<()> {
+    let path = ports_path();
+    if !path.exists() {
+        let content = serde_json::to_string_pretty(&PortsData::default())?;
+        fs::write(path, content)?;
+        println!("{} Created ports.json", "✓".green());
     }
 
     Ok(())

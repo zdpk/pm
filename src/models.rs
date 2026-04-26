@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -300,6 +301,130 @@ pub struct RepoSpec {
     pub name: String,
     pub description: String,
     pub source: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum PortKind {
+    Frontend,
+    Backend,
+    Database,
+    Redis,
+    Infra,
+}
+
+impl PortKind {
+    pub fn service_key(self) -> &'static str {
+        match self {
+            Self::Frontend => "front",
+            Self::Backend => "back",
+            Self::Database => "db",
+            Self::Redis => "redis",
+            Self::Infra => "infra",
+        }
+    }
+
+    pub fn env_key(self) -> &'static str {
+        match self {
+            Self::Frontend => "FRONTEND_PORT",
+            Self::Backend => "APP_PORT",
+            Self::Database => "LOCAL_POSTGRES_PORT",
+            Self::Redis => "LOCAL_REDIS_PORT",
+            Self::Infra => "LOCAL_INFRA_PORT",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Frontend => "frontend",
+            Self::Backend => "backend",
+            Self::Database => "database",
+            Self::Redis => "redis",
+            Self::Infra => "infra",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortRange {
+    pub start: u16,
+    pub end: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortService {
+    pub kind: PortKind,
+    pub env: String,
+    pub port: u16,
+
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub locked: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortProject {
+    pub workspace: String,
+    pub project: String,
+    pub path: String,
+    pub services: HashMap<String, PortService>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortsData {
+    pub version: u32,
+    pub ranges: HashMap<PortKind, PortRange>,
+    pub projects: HashMap<String, PortProject>,
+}
+
+impl Default for PortsData {
+    fn default() -> Self {
+        let mut ranges = HashMap::new();
+        ranges.insert(
+            PortKind::Frontend,
+            PortRange {
+                start: 10000,
+                end: 19999,
+            },
+        );
+        ranges.insert(
+            PortKind::Backend,
+            PortRange {
+                start: 20000,
+                end: 29999,
+            },
+        );
+        ranges.insert(
+            PortKind::Database,
+            PortRange {
+                start: 30000,
+                end: 39999,
+            },
+        );
+        ranges.insert(
+            PortKind::Redis,
+            PortRange {
+                start: 40000,
+                end: 44999,
+            },
+        );
+        ranges.insert(
+            PortKind::Infra,
+            PortRange {
+                start: 45000,
+                end: 49999,
+            },
+        );
+
+        Self {
+            version: 1,
+            ranges,
+            projects: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
