@@ -134,6 +134,10 @@ pub enum Commands {
     #[command(subcommand)]
     Manifest(ManifestCommand),
 
+    /// Repo spec version tracking
+    #[command(subcommand)]
+    Repo(RepoCommand),
+
     /// Generate shell completion script
     Completion {
         /// Shell type
@@ -347,6 +351,46 @@ pub enum WorkspaceRootCommand {
 pub enum ManifestCommand {
     /// Migrate legacy projects/workspaces files into manifest.json
     Migrate,
+}
+
+#[derive(Subcommand)]
+pub enum RepoCommand {
+    /// Repo spec registry
+    #[command(subcommand)]
+    Spec(RepoSpecCommand),
+
+    /// Track repo spec version for a project
+    Track {
+        /// Project name in current workspace
+        project: String,
+
+        /// Repo spec id
+        #[arg(long)]
+        spec: String,
+
+        /// Version to record (default: current spec version)
+        #[arg(long)]
+        version: Option<String>,
+    },
+
+    /// Show repo spec status for a project
+    Status {
+        /// Project name (default: current project)
+        project: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RepoSpecCommand {
+    /// List registered repo specs
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Show repo spec details
+    Show {
+        /// Repo spec id
+        id: String,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]

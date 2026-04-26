@@ -1,6 +1,7 @@
 use crate::error::PmError;
 use crate::models::{
-    Config, HistoryData, LegacyProjectsData, LegacyWorkspacesData, Manifest, Project, Workspace,
+    Config, HistoryData, LegacyProjectsData, LegacyWorkspacesData, Manifest, Project, RepoSpec,
+    Workspace,
 };
 use crate::path::{collapse_path, expand_path};
 use anyhow::Result;
@@ -46,6 +47,14 @@ pub fn history_path() -> PathBuf {
     config_dir().join("history.json")
 }
 
+pub fn repo_specs_dir() -> PathBuf {
+    config_dir().join("repo-specs")
+}
+
+pub fn repo_spec_path(id: &str) -> PathBuf {
+    repo_specs_dir().join(format!("{id}.json"))
+}
+
 pub fn projects_path() -> PathBuf {
     config_dir().join("projects.json")
 }
@@ -75,6 +84,47 @@ pub fn save_config(config: &Config) -> Result<()> {
     let content = serde_json::to_string_pretty(config)?;
     fs::write(config_path(), content)?;
     Ok(())
+}
+
+// ──────────────────────────────────────────────
+// Repo specs
+// ──────────────────────────────────────────────
+
+pub fn load_repo_spec(id: &str) -> Result<RepoSpec> {
+    ensure_initialized()?;
+    let path = repo_spec_path(id);
+    if !path.exists() {
+        return Err(PmError::RepoSpecNotFound(id.to_string()).into());
+    }
+    let content = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&content)?)
+}
+
+pub fn list_repo_specs() -> Result<Vec<RepoSpec>> {
+    ensure_initialized()?;
+    let dir = repo_specs_dir();
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut specs = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+
+        let content = fs::read_to_string(path)?;
+        specs.push(serde_json::from_str(&content)?);
+    }
+
+    specs.sort_by(|a: &RepoSpec, b: &RepoSpec| a.id.cmp(&b.id));
+    Ok(specs)
 }
 
 pub fn load_manifest() -> Result<Manifest> {
@@ -196,6 +246,7 @@ pub fn migrate_legacy_data() -> Result<Manifest> {
             last_accessed: legacy_project.last_accessed,
             access_count: legacy_project.access_count,
             proj: None,
+            repo_spec: None,
         });
     }
 

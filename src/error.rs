@@ -69,6 +69,9 @@ pub enum PmError {
     #[error("TOML parse error: {0}")]
     Toml(#[from] toml::de::Error),
 
+    #[error("Repo spec '{0}' not found")]
+    RepoSpecNotFound(String),
+
     #[error("Git error: {0}")]
     Git(#[from] git2::Error),
 

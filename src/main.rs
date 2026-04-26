@@ -69,6 +69,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             jobs,
         } => commands::sync::run(workspace, yes, jobs),
         Commands::Manifest(cmd) => commands::manifest::run(cmd),
+        Commands::Repo(repo_cmd) => commands::repo::run(repo_cmd),
         Commands::Completion { shell } => commands::completion::run(shell),
         Commands::History { limit } => commands::history::run(limit),
         Commands::Check => commands::check::run(),

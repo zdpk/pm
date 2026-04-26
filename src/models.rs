@@ -259,6 +259,9 @@ pub struct Project {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proj: Option<ProjMeta>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_spec: Option<RepoSpecMetadata>,
 }
 
 impl Project {
@@ -276,8 +279,27 @@ impl Project {
             last_accessed: now,
             access_count: 0,
             proj: None,
+            repo_spec: None,
         }
     }
+}
+
+/// Repo spec applied to a project
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoSpecMetadata {
+    pub id: String,
+    pub version: String,
+    pub applied_at: DateTime<Utc>,
+}
+
+/// Repo initialization spec registry entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoSpec {
+    pub id: String,
+    pub version: String,
+    pub name: String,
+    pub description: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -306,7 +328,6 @@ pub struct LegacyProject {
     #[serde(default)]
     pub access_count: u32,
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LegacyWorkspacesData {
     pub version: u32,
