@@ -7,7 +7,11 @@ pub fn run(target: String) -> Result<()> {
     let (workspace_name, project_name) = parse_target(target);
 
     if let Some(workspace_name) = workspace_name {
-        if !manifest.workspaces.iter().any(|ws| ws.name == workspace_name) {
+        if !manifest
+            .workspaces
+            .iter()
+            .any(|ws| ws.name == workspace_name)
+        {
             return Err(PmError::WorkspaceNotFound(workspace_name).into());
         }
         config.current_workspace = workspace_name;

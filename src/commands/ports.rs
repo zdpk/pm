@@ -3,7 +3,7 @@ use crate::config::{load_ports, save_ports};
 use crate::error::PmError;
 use crate::models::{PortKind, PortProject, PortService, PortsData, Project};
 use crate::state::{detect_current_project, load_state, parse_target, project_path_display};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use colored::Colorize;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};

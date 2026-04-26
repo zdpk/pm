@@ -84,9 +84,9 @@ pub fn run(
                     FilterType::Git => path
                         .as_ref()
                         .is_some_and(|path| is_git_repo(&path.display().to_string())),
-                    FilterType::NonGit => path
-                        .as_ref()
-                        .is_some_and(|path| path.exists() && !is_git_repo(&path.display().to_string())),
+                    FilterType::NonGit => path.as_ref().is_some_and(|path| {
+                        path.exists() && !is_git_repo(&path.display().to_string())
+                    }),
                     FilterType::Orphan => path.as_ref().is_some_and(|path| !path.exists()),
                 }
             });
@@ -101,8 +101,12 @@ pub fn run(
             SortField::Status => projects.sort_by(|a, b| {
                 let a_path = project_path(&config, &manifest, a).ok();
                 let b_path = project_path(&config, &manifest, b).ok();
-                let a_status = a_path.as_ref().and_then(|path| get_status(&path.display().to_string()));
-                let b_status = b_path.as_ref().and_then(|path| get_status(&path.display().to_string()));
+                let a_status = a_path
+                    .as_ref()
+                    .and_then(|path| get_status(&path.display().to_string()));
+                let b_status = b_path
+                    .as_ref()
+                    .and_then(|path| get_status(&path.display().to_string()));
                 let a_clean = a_status.as_ref().is_some_and(|s| s.is_clean);
                 let b_clean = b_status.as_ref().is_some_and(|s| s.is_clean);
                 a_clean.cmp(&b_clean)
@@ -131,7 +135,12 @@ pub fn run(
         }
 
         println!();
-        let name_width = projects.iter().map(|p| p.name.len()).max().unwrap_or(4).max(4);
+        let name_width = projects
+            .iter()
+            .map(|p| p.name.len())
+            .max()
+            .unwrap_or(4)
+            .max(4);
         let branch_width = 12;
         let status_width = 16;
         let time_width = 8;
@@ -140,7 +149,11 @@ pub fn run(
             "{}",
             format!(
                 "  {:<name_w$}   {:<branch_w$}   {:<status_w$}   {:<time_w$}   {}",
-                "NAME", "BRANCH", "STATUS", "LAST", "PATH",
+                "NAME",
+                "BRANCH",
+                "STATUS",
+                "LAST",
+                "PATH",
                 name_w = name_width,
                 branch_w = branch_width,
                 status_w = status_width,
@@ -163,7 +176,10 @@ pub fn run(
             } else if no_status {
                 ("-".to_string(), "-".to_string(), "dimmed")
             } else if let Some(git_status) = get_status(&path.display().to_string()) {
-                let branch = git_status.branch.clone().unwrap_or_else(|| "detached".to_string());
+                let branch = git_status
+                    .branch
+                    .clone()
+                    .unwrap_or_else(|| "detached".to_string());
                 if git_status.is_clean {
                     (branch, "clean".to_string(), "green")
                 } else if git_status.has_conflict {
@@ -192,15 +208,27 @@ pub fn run(
             let is_current = config.current_project.as_deref() == Some(project.name.as_str());
             let marker = if is_current { "* " } else { "  " };
             let status_colored = match status_color {
-                "red" => format!("{:<width$}", status_text, width = status_width).red().to_string(),
-                "green" => format!("{:<width$}", status_text, width = status_width).green().to_string(),
-                "yellow" => format!("{:<width$}", status_text, width = status_width).yellow().to_string(),
-                _ => format!("{:<width$}", status_text, width = status_width).dimmed().to_string(),
+                "red" => format!("{:<width$}", status_text, width = status_width)
+                    .red()
+                    .to_string(),
+                "green" => format!("{:<width$}", status_text, width = status_width)
+                    .green()
+                    .to_string(),
+                "yellow" => format!("{:<width$}", status_text, width = status_width)
+                    .yellow()
+                    .to_string(),
+                _ => format!("{:<width$}", status_text, width = status_width)
+                    .dimmed()
+                    .to_string(),
             };
 
             println!(
                 "{}{:<name_w$}   {:<branch_w$}   {}   {:<time_w$}   {}{}",
-                if is_current { marker.cyan().bold().to_string() } else { marker.to_string() },
+                if is_current {
+                    marker.cyan().bold().to_string()
+                } else {
+                    marker.to_string()
+                },
                 if is_current {
                     project.name.cyan().bold().to_string()
                 } else {

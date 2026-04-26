@@ -28,7 +28,9 @@ pub fn run(project: String, yes: bool, force: bool, recursive: bool) -> Result<(
         if path.exists() {
             fs::remove_dir_all(&path)?;
         }
-        manifest.projects.retain(|candidate| candidate.name != project);
+        manifest
+            .projects
+            .retain(|candidate| candidate.name != project);
         clear_current_project(&mut config, &project);
         save_state(&config, &manifest)?;
         println!("{} Deleted '{}' and its files", "✓".green(), project.cyan());
@@ -46,7 +48,9 @@ pub fn run(project: String, yes: bool, force: bool, recursive: bool) -> Result<(
         println!("{} Moved '{}' to trash", "✓".green(), project.cyan());
     } else {
         record_project_event(&project_data, &path, HistoryAction::Unregistered)?;
-        manifest.projects.retain(|candidate| candidate.name != project);
+        manifest
+            .projects
+            .retain(|candidate| candidate.name != project);
         clear_current_project(&mut config, &project);
         save_state(&config, &manifest)?;
         println!(

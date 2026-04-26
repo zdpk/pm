@@ -59,12 +59,7 @@ pub fn run() -> Result<()> {
             }
         }
 
-        println!(
-            "{} {:<16} {}",
-            "✓".green(),
-            project.name,
-            path_display
-        );
+        println!("{} {:<16} {}", "✓".green(), project.name, path_display);
     }
 
     if issues > 0 {

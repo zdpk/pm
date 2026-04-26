@@ -119,8 +119,11 @@ fn fetch_latest_version() -> Result<ReleaseInfo> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         // Fallback: try without gh (curl)
-        return fetch_latest_version_curl()
-            .map_err(|_| anyhow::anyhow!("Failed to check for updates. Install `gh` CLI or check network.\n{stderr}"));
+        return fetch_latest_version_curl().map_err(|_| {
+            anyhow::anyhow!(
+                "Failed to check for updates. Install `gh` CLI or check network.\n{stderr}"
+            )
+        });
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -131,9 +134,7 @@ fn fetch_latest_version_curl() -> Result<ReleaseInfo> {
     let output = Command::new("curl")
         .args([
             "-sL",
-            &format!(
-                "https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-            ),
+            &format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"),
         ])
         .output()?;
 

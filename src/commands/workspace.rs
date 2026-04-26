@@ -51,8 +51,15 @@ fn list() -> Result<()> {
         } else {
             " ".normal()
         };
-        let count = manifest.projects.iter().filter(|p| p.workspace == ws.name).count();
-        let root = ws.root.clone().unwrap_or_else(|| format!("{}/{}", config.base_root, ws.name));
+        let count = manifest
+            .projects
+            .iter()
+            .filter(|p| p.workspace == ws.name)
+            .count();
+        let root = ws
+            .root
+            .clone()
+            .unwrap_or_else(|| format!("{}/{}", config.base_root, ws.name));
         println!("{} {:<12} {:<8} {}", marker, ws.name, count, root.dimmed());
     }
     Ok(())
@@ -132,9 +139,13 @@ fn remove(name: String, force: bool, recursive: bool) -> Result<()> {
                 }
             }
         }
-        manifest.projects.retain(|project| project.workspace != name);
+        manifest
+            .projects
+            .retain(|project| project.workspace != name);
     } else if force {
-        manifest.projects.retain(|project| project.workspace != name);
+        manifest
+            .projects
+            .retain(|project| project.workspace != name);
     } else {
         for project in &mut manifest.projects {
             if project.workspace == name {
@@ -200,14 +211,24 @@ fn config(
     if let Some(key) = unset {
         ws.git.remove(&key);
         save_state(&config, &manifest)?;
-        println!("{} Unset {} for workspace '{}'", "✓".green(), key, workspace.cyan());
+        println!(
+            "{} Unset {} for workspace '{}'",
+            "✓".green(),
+            key,
+            workspace.cyan()
+        );
         return Ok(());
     }
 
     if let (Some(key), Some(value)) = (key, value) {
         ws.git.insert(key.clone(), value.clone());
         save_state(&config, &manifest)?;
-        println!("{} Set {} for workspace '{}'", "✓".green(), key, workspace.cyan());
+        println!(
+            "{} Set {} for workspace '{}'",
+            "✓".green(),
+            key,
+            workspace.cyan()
+        );
         return Ok(());
     }
 
@@ -226,7 +247,11 @@ fn apply_git(workspace: String) -> Result<()> {
     }
 
     let mut applied_count = 0;
-    for project in manifest.projects.iter().filter(|p| p.workspace == workspace) {
+    for project in manifest
+        .projects
+        .iter()
+        .filter(|p| p.workspace == workspace)
+    {
         let path = project_path(&config, &manifest, project)?;
         if !path.exists() {
             println!(
@@ -267,6 +292,10 @@ fn set_root(workspace: String, path: String) -> Result<()> {
     let ws = find_workspace_mut(&mut manifest, &workspace)?;
     ws.root = Some(normalized_workspace_root(&path)?);
     save_state(&config, &manifest)?;
-    println!("{} Set root for workspace '{}'", "✓".green(), workspace.cyan());
+    println!(
+        "{} Set root for workspace '{}'",
+        "✓".green(),
+        workspace.cyan()
+    );
     Ok(())
 }

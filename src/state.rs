@@ -68,7 +68,11 @@ pub fn project_path(config: &Config, manifest: &Manifest, project: &Project) -> 
     Ok(workspace_root(config, workspace).join(&project.dir))
 }
 
-pub fn project_path_display(config: &Config, manifest: &Manifest, project: &Project) -> Result<String> {
+pub fn project_path_display(
+    config: &Config,
+    manifest: &Manifest,
+    project: &Project,
+) -> Result<String> {
     Ok(collapse_path(&project_path(config, manifest, project)?))
 }
 
@@ -88,7 +92,8 @@ pub fn detect_current_project<'a>(
         }
 
         match &best_match {
-            Some((_, current_root)) if current_root.components().count() >= project_root.components().count() => {}
+            Some((_, current_root))
+                if current_root.components().count() >= project_root.components().count() => {}
             _ => best_match = Some((project, project_root)),
         }
     }
@@ -107,7 +112,9 @@ pub fn relative_dir(root: &Path, path: &Path) -> Result<String> {
 
     let dir = relative.display().to_string();
     if dir.is_empty() || dir == "." {
-        return Err(anyhow::anyhow!("Project path cannot be the workspace root itself"));
+        return Err(anyhow::anyhow!(
+            "Project path cannot be the workspace root itself"
+        ));
     }
     Ok(dir)
 }

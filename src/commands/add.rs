@@ -89,7 +89,12 @@ pub fn run(
         });
     }
 
-    let mut project = Project::new(project_name.clone(), current_workspace.clone(), repo_slug, dir);
+    let mut project = Project::new(
+        project_name.clone(),
+        current_workspace.clone(),
+        repo_slug,
+        dir,
+    );
     project.remote = remote;
     project.note = note;
     if let Some(tags_str) = tags {

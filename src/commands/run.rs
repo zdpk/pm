@@ -2,7 +2,7 @@ use crate::config::load_ports;
 use crate::error::PmError;
 use crate::models::{PortKind, Project};
 use crate::state::{detect_current_project, load_state, parse_target, project_path};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;

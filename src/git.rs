@@ -96,7 +96,9 @@ fn get_ahead_behind(repo: &Repository) -> Option<(usize, usize)> {
     let branch_name = head.shorthand()?;
     let upstream_name = format!("origin/{}", branch_name);
 
-    let upstream = repo.find_reference(&format!("refs/remotes/{}", upstream_name)).ok()?;
+    let upstream = repo
+        .find_reference(&format!("refs/remotes/{}", upstream_name))
+        .ok()?;
     let upstream_oid = upstream.target()?;
 
     repo.graph_ahead_behind(local_oid, upstream_oid).ok()

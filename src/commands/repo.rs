@@ -1,7 +1,9 @@
 use crate::cli::{RepoCommand, RepoSpecCommand};
 use crate::config::{list_repo_specs, load_repo_spec};
 use crate::models::RepoSpecMetadata;
-use crate::state::{detect_current_project, find_project, find_project_mut, load_state, save_state};
+use crate::state::{
+    detect_current_project, find_project, find_project_mut, load_state, save_state,
+};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use colored::Colorize;

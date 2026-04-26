@@ -125,9 +125,15 @@ fn cmd_init(
         vec!["ci".to_string(), "docker".to_string(), "hooks".to_string()]
     } else if ci || docker || hooks {
         let mut inc = Vec::new();
-        if ci { inc.push("ci".to_string()); }
-        if docker { inc.push("docker".to_string()); }
-        if hooks { inc.push("hooks".to_string()); }
+        if ci {
+            inc.push("ci".to_string());
+        }
+        if docker {
+            inc.push("docker".to_string());
+        }
+        if hooks {
+            inc.push("hooks".to_string());
+        }
         inc
     } else if !yes {
         resolve_includes_interactive()?
@@ -144,7 +150,11 @@ fn cmd_init(
     let source_files = proj::collect_all_source_files(&repo_path, &proj_config)?;
 
     if source_files.is_empty() {
-        println!("{} No config files found for {}", "!".yellow(), stack_label(&lang, fw.as_deref()));
+        println!(
+            "{} No config files found for {}",
+            "!".yellow(),
+            stack_label(&lang, fw.as_deref())
+        );
         return Ok(());
     }
 
@@ -224,9 +234,16 @@ fn cmd_add(language: Option<String>, framework: Option<String>) -> Result<()> {
 
     try_update_manifest_proj_meta(None, &lang, fw.as_deref(), &head);
 
-    println!("{} Registered for config management ({})", "✓".green(), stack_label(&lang, fw.as_deref()));
+    println!(
+        "{} Registered for config management ({})",
+        "✓".green(),
+        stack_label(&lang, fw.as_deref())
+    );
     println!("  Created .project.yaml");
-    println!("  Run '{}' to apply config files.", "pm project sync".bold());
+    println!(
+        "  Run '{}' to apply config files.",
+        "pm project sync".bold()
+    );
     Ok(())
 }
 
@@ -279,7 +296,12 @@ fn sync_project(
 
         if proj::is_file_outdated(source, &target, entry.strategy) {
             if dry_run {
-                println!("  {} {} ({})", "~".yellow(), entry.path, entry.strategy.label());
+                println!(
+                    "  {} {} ({})",
+                    "~".yellow(),
+                    entry.path,
+                    entry.strategy.label()
+                );
             } else {
                 proj::apply_file(source, &target, entry.strategy)?;
                 println!("  {} {} {}", "✓".green(), entry.path, "updated".green());
@@ -401,7 +423,12 @@ fn check_project(repo_path: &Path, project_dir: &Path, name_override: Option<&st
     let version_outdated = proj_config.config_version != head;
 
     if outdated_files.is_empty() && !version_outdated {
-        println!("{} {} ({}) — up to date", "✓".green(), project_name.bold(), stack);
+        println!(
+            "{} {} ({}) — up to date",
+            "✓".green(),
+            project_name.bold(),
+            stack
+        );
     } else {
         let count = outdated_files.len();
         println!(
@@ -437,11 +464,7 @@ fn check_all(repo_path: &Path) -> Result<()> {
     for project in &proj_projects {
         let project_path = state::project_path(&config, &manifest, project)?;
         if !project_path.exists() {
-            println!(
-                "{} {} — project missing",
-                "!".yellow(),
-                project.name.bold()
-            );
+            println!("{} {} — project missing", "!".yellow(), project.name.bold());
             continue;
         }
         if let Err(e) = check_project(repo_path, &project_path, Some(&project.name)) {
@@ -469,8 +492,16 @@ fn cmd_diff() -> Result<()> {
         let target = cwd.join(&entry.path);
         if let Some(diff_output) = proj::diff_file(source, &target) {
             has_diff = true;
-            println!("{} {}", "---".red(), format!("upstream: {}", entry.path).red());
-            println!("{} {}", "+++".green(), format!("local: {}", entry.path).green());
+            println!(
+                "{} {}",
+                "---".red(),
+                format!("upstream: {}", entry.path).red()
+            );
+            println!(
+                "{} {}",
+                "+++".green(),
+                format!("local: {}", entry.path).green()
+            );
             for line in diff_output.lines() {
                 if line.starts_with('+') {
                     println!("{}", line.green());
@@ -504,7 +535,10 @@ fn cmd_list() -> Result<()> {
 
     if proj_projects.is_empty() {
         println!("No projects with config management enabled.");
-        println!("Run '{}' in a project to get started.", "pm project init".bold());
+        println!(
+            "Run '{}' in a project to get started.",
+            "pm project init".bold()
+        );
         return Ok(());
     }
 
@@ -584,10 +618,7 @@ fn resolve_framework_interactive(
     language: &str,
     global_manifest: &proj::GlobalManifest,
 ) -> Result<Option<String>> {
-    let lang_entry = global_manifest
-        .languages
-        .iter()
-        .find(|l| l.id == language);
+    let lang_entry = global_manifest.languages.iter().find(|l| l.id == language);
 
     let Some(lang_entry) = lang_entry else {
         return Ok(None);
@@ -613,7 +644,11 @@ fn resolve_framework_interactive(
     items.push("None".to_string());
 
     let default_idx = if let Some(ref det) = detected {
-        lang_entry.frameworks.iter().position(|f| f == det).unwrap_or(0)
+        lang_entry
+            .frameworks
+            .iter()
+            .position(|f| f == det)
+            .unwrap_or(0)
     } else {
         0
     };
@@ -634,13 +669,25 @@ fn resolve_framework_interactive(
 fn resolve_includes_interactive() -> Result<Vec<String>> {
     let mut includes = Vec::new();
 
-    if dialoguer::Confirm::new().with_prompt("Include CI/CD?").default(true).interact()? {
+    if dialoguer::Confirm::new()
+        .with_prompt("Include CI/CD?")
+        .default(true)
+        .interact()?
+    {
         includes.push("ci".to_string());
     }
-    if dialoguer::Confirm::new().with_prompt("Include Dockerfile?").default(true).interact()? {
+    if dialoguer::Confirm::new()
+        .with_prompt("Include Dockerfile?")
+        .default(true)
+        .interact()?
+    {
         includes.push("docker".to_string());
     }
-    if dialoguer::Confirm::new().with_prompt("Include pre-commit hooks?").default(true).interact()? {
+    if dialoguer::Confirm::new()
+        .with_prompt("Include pre-commit hooks?")
+        .default(true)
+        .interact()?
+    {
         includes.push("hooks".to_string());
     }
 

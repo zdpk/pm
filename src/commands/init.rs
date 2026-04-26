@@ -79,7 +79,10 @@ fn ensure_repo_specs_dir() -> Result<()> {
             source: "BACKEND_TEMPLATE_STANDARD.md".to_string(),
         };
         fs::write(default_spec_path, serde_json::to_string_pretty(&spec)?)?;
-        println!("{} Created repo-specs/rust-axum-sqlx-backend.json", "✓".green());
+        println!(
+            "{} Created repo-specs/rust-axum-sqlx-backend.json",
+            "✓".green()
+        );
     }
 
     Ok(())

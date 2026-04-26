@@ -12,7 +12,10 @@ pub fn run(limit: usize) -> Result<()> {
         return Ok(());
     }
 
-    println!("  {:<20} {:<12} {:<16} {}", "WHEN", "ACTION", "PROJECT", "PATH");
+    println!(
+        "  {:<20} {:<12} {:<16} {}",
+        "WHEN", "ACTION", "PROJECT", "PATH"
+    );
     for entry in entries {
         println!(
             "  {:<20} {:<12} {:<16} {}",

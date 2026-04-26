@@ -133,7 +133,9 @@ pub fn update_config_repo(url: &str, cache_dir: &str) -> Result<PathBuf> {
 pub fn config_repo_head(repo_path: &Path) -> Result<String> {
     let repo = Repository::open(repo_path)?;
     let head = repo.head()?;
-    let oid = head.target().ok_or_else(|| anyhow::anyhow!("HEAD has no target"))?;
+    let oid = head
+        .target()
+        .ok_or_else(|| anyhow::anyhow!("HEAD has no target"))?;
     Ok(format!("{}", oid)[..7].to_string())
 }
 
@@ -172,13 +174,12 @@ fn has_files_with_extension(dir: &Path, ext: &str) -> bool {
     let Ok(entries) = fs::read_dir(dir) else {
         return false;
     };
-    entries
-        .filter_map(|entry| entry.ok())
-        .any(|entry| {
-            entry.path()
-                .extension()
-                .is_some_and(|file_ext| file_ext == ext)
-        })
+    entries.filter_map(|entry| entry.ok()).any(|entry| {
+        entry
+            .path()
+            .extension()
+            .is_some_and(|file_ext| file_ext == ext)
+    })
 }
 
 pub fn detect_framework(project_dir: &Path, language: &str) -> Option<String> {
@@ -238,7 +239,11 @@ fn detect_dart_framework(dir: &Path) -> Option<String> {
 
 // ── Config manifest loading ──
 
-pub fn load_config_manifest(repo_path: &Path, lang: &str, fw: Option<&str>) -> Result<Vec<(PathBuf, ConfigFileEntry)>> {
+pub fn load_config_manifest(
+    repo_path: &Path,
+    lang: &str,
+    fw: Option<&str>,
+) -> Result<Vec<(PathBuf, ConfigFileEntry)>> {
     let mut files = Vec::new();
 
     // 1. common/ manifest
@@ -269,7 +274,10 @@ pub fn load_config_manifest(repo_path: &Path, lang: &str, fw: Option<&str>) -> R
 }
 
 /// Collect shared/ files based on includes (ci, docker, hooks)
-pub fn collect_shared_files(repo_path: &Path, includes: &[String]) -> Result<Vec<(PathBuf, ConfigFileEntry)>> {
+pub fn collect_shared_files(
+    repo_path: &Path,
+    includes: &[String],
+) -> Result<Vec<(PathBuf, ConfigFileEntry)>> {
     let mut files = Vec::new();
     let shared_dir = repo_path.join("shared");
 
@@ -318,7 +326,8 @@ fn collect_dir_recursive(
         if path.is_dir() {
             collect_dir_recursive(base, &path, files)?;
         } else if path.file_name().is_some_and(|n| n != "manifest.yaml") {
-            let rel = path.strip_prefix(base)
+            let rel = path
+                .strip_prefix(base)
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
             if !rel.is_empty() {
@@ -454,13 +463,21 @@ pub fn is_file_outdated(source: &Path, target: &Path, strategy: FileStrategy) ->
     match strategy {
         FileStrategy::Template => false, // templates are never synced
         FileStrategy::Managed => {
-            let Ok(src) = fs::read(source) else { return false };
-            let Ok(tgt) = fs::read(target) else { return true };
+            let Ok(src) = fs::read(source) else {
+                return false;
+            };
+            let Ok(tgt) = fs::read(target) else {
+                return true;
+            };
             src != tgt
         }
         FileStrategy::Merged => {
-            let Ok(src) = fs::read_to_string(source) else { return false };
-            let Ok(tgt) = fs::read_to_string(target) else { return true };
+            let Ok(src) = fs::read_to_string(source) else {
+                return false;
+            };
+            let Ok(tgt) = fs::read_to_string(target) else {
+                return true;
+            };
             let target_lines: HashSet<&str> = tgt.lines().collect();
             src.lines()
                 .any(|line| !line.trim().is_empty() && !target_lines.contains(line))
@@ -857,7 +874,10 @@ mod tests {
         fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
 
         let manifest = make_global_manifest();
-        assert_eq!(detect_language(dir.path(), &manifest), Some("rust".to_string()));
+        assert_eq!(
+            detect_language(dir.path(), &manifest),
+            Some("rust".to_string())
+        );
     }
 
     #[test]
@@ -866,7 +886,10 @@ mod tests {
         fs::write(dir.path().join("package.json"), "{}").unwrap();
 
         let manifest = make_global_manifest();
-        assert_eq!(detect_language(dir.path(), &manifest), Some("ts".to_string()));
+        assert_eq!(
+            detect_language(dir.path(), &manifest),
+            Some("ts".to_string())
+        );
     }
 
     #[test]
@@ -875,7 +898,10 @@ mod tests {
         fs::write(dir.path().join("pyproject.toml"), "[tool]").unwrap();
 
         let manifest = make_global_manifest();
-        assert_eq!(detect_language(dir.path(), &manifest), Some("python".to_string()));
+        assert_eq!(
+            detect_language(dir.path(), &manifest),
+            Some("python".to_string())
+        );
     }
 
     #[test]
@@ -884,7 +910,10 @@ mod tests {
         fs::write(dir.path().join("requirements.txt"), "flask").unwrap();
 
         let manifest = make_global_manifest();
-        assert_eq!(detect_language(dir.path(), &manifest), Some("python".to_string()));
+        assert_eq!(
+            detect_language(dir.path(), &manifest),
+            Some("python".to_string())
+        );
     }
 
     #[test]
@@ -893,7 +922,10 @@ mod tests {
         fs::write(dir.path().join("main.c"), "int main(){}").unwrap();
 
         let manifest = make_global_manifest();
-        assert_eq!(detect_language(dir.path(), &manifest), Some("c".to_string()));
+        assert_eq!(
+            detect_language(dir.path(), &manifest),
+            Some("c".to_string())
+        );
     }
 
     #[test]
@@ -913,9 +945,13 @@ mod tests {
         fs::write(
             dir.path().join("Cargo.toml"),
             "[dependencies]\naxum = \"0.7\"\ntokio = \"1\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(detect_framework(dir.path(), "rust"), Some("axum".to_string()));
+        assert_eq!(
+            detect_framework(dir.path(), "rust"),
+            Some("axum".to_string())
+        );
     }
 
     #[test]
@@ -924,9 +960,13 @@ mod tests {
         fs::write(
             dir.path().join("Cargo.toml"),
             "[dependencies]\nclap = { version = \"4\", features = [\"derive\"] }\n",
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(detect_framework(dir.path(), "rust"), Some("clap".to_string()));
+        assert_eq!(
+            detect_framework(dir.path(), "rust"),
+            Some("clap".to_string())
+        );
     }
 
     #[test]
@@ -935,7 +975,8 @@ mod tests {
         fs::write(
             dir.path().join("Cargo.toml"),
             "[dependencies]\nserde = \"1\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(detect_framework(dir.path(), "rust"), None);
     }
@@ -945,7 +986,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("next.config.js"), "module.exports = {}").unwrap();
 
-        assert_eq!(detect_framework(dir.path(), "ts"), Some("nextjs".to_string()));
+        assert_eq!(
+            detect_framework(dir.path(), "ts"),
+            Some("nextjs".to_string())
+        );
     }
 
     #[test]
@@ -953,7 +997,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("next.config.mjs"), "export default {}").unwrap();
 
-        assert_eq!(detect_framework(dir.path(), "ts"), Some("nextjs".to_string()));
+        assert_eq!(
+            detect_framework(dir.path(), "ts"),
+            Some("nextjs".to_string())
+        );
     }
 
     #[test]
@@ -961,7 +1008,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("nest-cli.json"), "{}").unwrap();
 
-        assert_eq!(detect_framework(dir.path(), "ts"), Some("nestjs".to_string()));
+        assert_eq!(
+            detect_framework(dir.path(), "ts"),
+            Some("nestjs".to_string())
+        );
     }
 
     #[test]
@@ -970,9 +1020,13 @@ mod tests {
         fs::write(
             dir.path().join("pyproject.toml"),
             "[project]\ndependencies = [\"fastapi\"]\n",
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(detect_framework(dir.path(), "python"), Some("fastapi".to_string()));
+        assert_eq!(
+            detect_framework(dir.path(), "python"),
+            Some("fastapi".to_string())
+        );
     }
 
     #[test]
@@ -981,9 +1035,13 @@ mod tests {
         fs::write(
             dir.path().join("pubspec.yaml"),
             "dependencies:\n  flutter:\n    sdk: flutter\n",
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(detect_framework(dir.path(), "dart"), Some("flutter".to_string()));
+        assert_eq!(
+            detect_framework(dir.path(), "dart"),
+            Some("flutter".to_string())
+        );
     }
 
     #[test]
@@ -1011,7 +1069,8 @@ mod tests {
         fs::write(
             axum.join("manifest.yaml"),
             "files:\n  - path: Dockerfile\n    strategy: template\n",
-        ).unwrap();
+        )
+        .unwrap();
         fs::write(axum.join("Dockerfile"), "FROM rust:1.78").unwrap();
 
         // shared/
@@ -1020,7 +1079,8 @@ mod tests {
         fs::write(
             shared.join("manifest.yaml"),
             "files:\n  - path: .editorconfig\n    strategy: managed\n",
-        ).unwrap();
+        )
+        .unwrap();
         fs::write(shared.join(".editorconfig"), "root = true").unwrap();
 
         // shared/ci/
@@ -1036,8 +1096,16 @@ mod tests {
 
         let files = load_config_manifest(dir.path(), "rust", None).unwrap();
         assert_eq!(files.len(), 2); // rustfmt.toml + .gitignore
-        assert!(files.iter().any(|(_, e)| e.path == "rustfmt.toml" && e.strategy == FileStrategy::Managed));
-        assert!(files.iter().any(|(_, e)| e.path == ".gitignore" && e.strategy == FileStrategy::Merged));
+        assert!(
+            files
+                .iter()
+                .any(|(_, e)| e.path == "rustfmt.toml" && e.strategy == FileStrategy::Managed)
+        );
+        assert!(
+            files
+                .iter()
+                .any(|(_, e)| e.path == ".gitignore" && e.strategy == FileStrategy::Merged)
+        );
     }
 
     #[test]
@@ -1047,7 +1115,11 @@ mod tests {
 
         let files = load_config_manifest(dir.path(), "rust", Some("axum")).unwrap();
         assert_eq!(files.len(), 3); // common(2) + axum(1)
-        assert!(files.iter().any(|(_, e)| e.path == "Dockerfile" && e.strategy == FileStrategy::Template));
+        assert!(
+            files
+                .iter()
+                .any(|(_, e)| e.path == "Dockerfile" && e.strategy == FileStrategy::Template)
+        );
     }
 
     #[test]
@@ -1184,13 +1256,21 @@ mod tests {
         // User modifies template file
         fs::write(project.path().join("Dockerfile"), "FROM rust:1.80-custom").unwrap();
         // Upstream updates managed file
-        fs::write(repo.path().join("rust/common/rustfmt.toml"), "edition = \"2024\"").unwrap();
+        fs::write(
+            repo.path().join("rust/common/rustfmt.toml"),
+            "edition = \"2024\"",
+        )
+        .unwrap();
 
         // Sync: only managed/merged should update, template should be left alone
         let files = collect_all_source_files(repo.path(), &config).unwrap();
         for (source, entry) in &files {
             if entry.strategy == FileStrategy::Template {
-                assert!(!is_file_outdated(source, &project.path().join(&entry.path), entry.strategy));
+                assert!(!is_file_outdated(
+                    source,
+                    &project.path().join(&entry.path),
+                    entry.strategy
+                ));
                 continue;
             }
             let target = project.path().join(&entry.path);

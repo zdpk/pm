@@ -24,7 +24,10 @@ pub fn run(workspace: Option<String>, yes: bool, jobs: usize) -> Result<()> {
 
     let mut tasks = Vec::new();
     for project in &manifest.projects {
-        if workspace.as_ref().is_some_and(|name| &project.workspace != name) {
+        if workspace
+            .as_ref()
+            .is_some_and(|name| &project.workspace != name)
+        {
             continue;
         }
 
@@ -78,7 +81,10 @@ pub fn run(workspace: Option<String>, yes: bool, jobs: usize) -> Result<()> {
 
     if !yes {
         let should_restore = prompt_yes_no(
-            &format!("Found {} missing project(s). Restore them now?", tasks.len()),
+            &format!(
+                "Found {} missing project(s). Restore them now?",
+                tasks.len()
+            ),
             true,
         )?;
         if !should_restore {
@@ -113,7 +119,11 @@ pub fn run(workspace: Option<String>, yes: bool, jobs: usize) -> Result<()> {
                 }
 
                 match clone_repo(&task.remote, &task.path) {
-                    Ok(()) => messages.push(format!("✓ Restored '{}' to {}", task.name, task.path.display())),
+                    Ok(()) => messages.push(format!(
+                        "✓ Restored '{}' to {}",
+                        task.name,
+                        task.path.display()
+                    )),
                     Err(err) => messages.push(format!("✗ '{}' failed: {}", task.name, err)),
                 }
             }

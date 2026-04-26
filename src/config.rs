@@ -215,7 +215,9 @@ pub fn migrate_legacy_data() -> Result<Manifest> {
                 let root = if ws.is_system() {
                     None
                 } else {
-                    Some(collapse_path(&expand_path(&config.base_root).join(&ws.name)))
+                    Some(collapse_path(
+                        &expand_path(&config.base_root).join(&ws.name),
+                    ))
                 };
                 Workspace {
                     name: ws.name.clone(),
