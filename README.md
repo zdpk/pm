@@ -16,6 +16,7 @@ That makes it possible to move your PM config between VMs and restore the same w
 - **Lazy restore** - Missing projects can be restored on `pm sw <project>`
 - **Bulk restore** - `pm sync` restores missing repositories in parallel
 - **Git-aware checks** - Detect missing repos, remote mismatches, and path conflicts
+- **Repo spec version tracking** - Record which template/spec version applies to each project
 
 ## Installation
 
@@ -128,6 +129,7 @@ pm() {
 | `pm workspace` | `ws` | Workspace management |
 | `pm sync [workspace]` | | Restore missing repositories in parallel |
 | `pm manifest migrate` | | Migrate legacy `projects.json`/`workspaces.json` |
+| `pm repo` | | Track project repo spec/template versions |
 | `pm check` | | Validate project health |
 | `pm plugin` | | List, enable, or disable command plugins |
 | `pm completion <shell>` | | Generate shell completions |
@@ -140,6 +142,31 @@ pm skills info sc
 pm skills deploy --dry-run
 ```
 
+## Repo Spec Version Tracking
+
+Record which repo initialization spec version was applied to a project.
+
+Specs are JSON files under `~/.config/pm/repo-specs/`. `pm init` creates the default `rust-axum-sqlx-backend` spec.
+
+```bash
+# List registered specs
+pm repo spec list
+
+# Show spec details
+pm repo spec show rust-axum-sqlx-backend
+
+# Track the current spec version for a project
+pm repo track api --spec rust-axum-sqlx-backend
+
+# Track an explicit version
+pm repo track api --spec rust-axum-sqlx-backend --version 0.1.0
+
+# Show project tracking status
+pm repo status api
+pm repo status              # Current-directory project
+```
+
+This feature tracks spec/template versions only. It does not render template files, run interactive scaffolding, or manage Git initial commits.
 ## Workspaces
 
 Create and manage workspace roots:
