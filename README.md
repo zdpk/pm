@@ -17,6 +17,7 @@ That makes it possible to move your PM config between VMs and restore the same w
 - **Bulk restore** - `pm sync` restores missing repositories in parallel
 - **Git-aware checks** - Detect missing repos, remote mismatches, and path conflicts
 - **Repo spec version tracking** - Record which template/spec version applies to each project
+- **Local port management** - Avoid frontend/backend/db/redis port conflicts across projects
 
 ## Installation
 
@@ -130,6 +131,8 @@ pm() {
 | `pm sync [workspace]` | | Restore missing repositories in parallel |
 | `pm manifest migrate` | | Migrate legacy `projects.json`/`workspaces.json` |
 | `pm repo` | | Track project repo spec/template versions |
+| `pm ports` | | Manage local project port allocations |
+| `pm run` | | Run commands with port environment overrides |
 | `pm check` | | Validate project health |
 | `pm plugin` | | List, enable, or disable command plugins |
 | `pm completion <shell>` | | Generate shell completions |
@@ -167,6 +170,53 @@ pm repo status              # Current-directory project
 ```
 
 This feature tracks spec/template versions only. It does not render template files, run interactive scaffolding, or manage Git initial commits.
+
+## Local Port Management
+
+PM stores project host ports in `~/.config/pm/ports.json`. It does not rewrite `.env`; `pm run` injects port values as environment variable overrides.
+
+Default ranges:
+
+```text
+frontend  10000-19999
+backend   20000-29999
+database  30000-39999
+redis     40000-44999
+infra     45000-49999
+```
+
+```bash
+# Assign backend + database + redis ports
+pm ports assign api
+
+# Assign a frontend port
+pm ports assign web --kind frontend
+
+# List all allocated ports
+pm ports list
+
+# Check current project, one project, or all projects
+pm ports check
+pm ports check api
+pm ports check --all
+
+# Repair duplicate ports
+pm ports repair api
+
+# Lock a port for OAuth or other stable callback needs
+pm ports lock api --service back
+
+# Release allocations
+pm ports release api
+
+# Run with port env overrides
+pm run api -- cargo run
+pm run -- npm run dev
+```
+
+`pm run` injects values such as `APP_PORT`, `FRONTEND_PORT`, `LOCAL_POSTGRES_PORT`, `LOCAL_REDIS_PORT`, `DATABASE_URL`, and `REDIS_URL` based on allocated services.
+
+Aliases, `/etc/hosts`, and reverse proxies are not managed.
 ## Workspaces
 
 Create and manage workspace roots:
