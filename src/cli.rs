@@ -143,13 +143,25 @@ pub enum Commands {
     #[command(subcommand)]
     Ports(PortsCommand),
 
-    /// Run a command with project port environment overrides
+    /// Run services or arbitrary commands in a project's environment.
+    ///
+    /// In v0.4.0, `pm run` has two modes that share the same grammar:
+    ///
+    /// - **Orchestrator** (when `.proj.yaml` defines `services:`): spawns
+    ///   one or all services with the daemon registered to route
+    ///   `<service>.<project>.<workspace>.localhost` to each upstream port.
+    ///   Examples: `pm run`, `pm run front`, `pm run back api`.
+    ///
+    /// - **Legacy** (when `--` is present): runs an arbitrary command in
+    ///   the project directory with port-related env vars injected.
+    ///   Example: `pm run myproj -- pnpm dev`. v0.3.0 behavior preserved.
     Run {
-        /// Project name (default: current project)
-        project: Option<String>,
+        /// Project / service identifiers (orchestrator mode), or project
+        /// name (legacy mode). Up to 2 positional args supported.
+        positional: Vec<String>,
 
-        /// Command to execute after --
-        #[arg(last = true, required = true)]
+        /// Command to execute (legacy mode). Pass after `--`.
+        #[arg(last = true)]
         command: Vec<String>,
     },
 
@@ -177,6 +189,26 @@ pub enum Commands {
     /// Project config file management
     #[command(visible_alias = "p", subcommand)]
     Project(ProjectCommand),
+
+    /// Tail the log of a running service.
+    Logs {
+        /// Service identifier (e.g. front, back). Required when the project
+        /// has more than one running service.
+        service: Option<String>,
+
+        /// Project name (default: current project). Use `<workspace>/<project>`
+        /// or `@workspace/project` to disambiguate.
+        project: Option<String>,
+    },
+
+    /// Stop running services spawned by `pm run`.
+    Stop {
+        /// Service identifier. Omit to stop all services in the project.
+        service: Option<String>,
+
+        /// Project name (default: current project).
+        project: Option<String>,
+    },
 
     /// Manage shared local Postgres / Redis containers
     #[command(subcommand)]

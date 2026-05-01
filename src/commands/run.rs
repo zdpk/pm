@@ -1,13 +1,89 @@
+//! `pm run` — entry point for both legacy and orchestrator modes.
+//!
+//! ## Grammar
+//!
+//! v0.3.0 grammar (preserved):
+//! ```text
+//! pm run [project] -- <cmd> [args...]
+//! ```
+//!
+//! v0.4.0 orchestrator grammar (activated when the resolved project has a
+//! `.proj.yaml` with a non-empty `services:` section AND the user did NOT
+//! pass a `--` separator):
+//! ```text
+//! pm run                  # all services in current project
+//! pm run <service>        # one service in current project
+//! pm run <service> <proj> # one service in a specific project
+//! pm run <project>        # all services in a specific project
+//! ```
+//!
+//! Disambiguation rule: if `--` was passed, run legacy mode unconditionally.
+//! Otherwise consult the project's `.proj.yaml`. If the first positional
+//! matches a service key in `.proj.yaml.services`, treat it as a service;
+//! else treat it as a project name.
+
 use crate::config::load_ports;
 use crate::error::PmError;
 use crate::models::Project;
+use crate::project as proj;
 use crate::state::{detect_current_project, load_state, parse_target, project_path};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-pub fn run(project_name: Option<String>, command: Vec<String>) -> Result<()> {
+pub fn run(positional: Vec<String>, command: Vec<String>) -> Result<()> {
+    // Legacy mode: presence of `--` (i.e. `command` is non-empty) takes
+    // precedence over orchestrator semantics. This guarantees v0.3.0
+    // grammar continues to work unchanged.
+    if !command.is_empty() {
+        return run_legacy(positional.into_iter().next(), command);
+    }
+
+    // No `--`. Inspect the first positional and the current project's
+    // .proj.yaml to decide service-mode vs all-services vs legacy fallback.
+    let (workspace, project, project_dir) = resolve_project_from_positional(&positional)?;
+
+    let proj_config = proj::load_proj_config(&project_dir).ok();
+    let services = proj_config.as_ref().map(|c| &c.services);
+
+    let has_services = services.map(|s| !s.is_empty()).unwrap_or(false);
+    if !has_services {
+        return Err(anyhow!(
+            "No `--` command provided and project '{}' has no services in .proj.yaml. \
+             Did you mean `pm run -- <command>` or `pm proj init` to add services?",
+            project.name
+        ));
+    }
+
+    // Decide which services to start.
+    let services_map = services.unwrap();
+    let target_service = first_service_token(&positional, services_map);
+
+    #[cfg(unix)]
+    {
+        crate::commands::orchestrator::start(
+            &workspace,
+            &project,
+            &project_dir,
+            proj_config.as_ref().unwrap(),
+            target_service.as_deref(),
+        )
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = (workspace, project, project_dir, target_service);
+        Err(anyhow!(
+            "Orchestrator mode requires Unix (macOS/Linux) in v0.4.0. \
+             Use `pm run -- <command>` for stateless mode on this platform."
+        ))
+    }
+}
+
+// ── Legacy v0.3.0 mode ──
+
+fn run_legacy(project_name: Option<String>, command: Vec<String>) -> Result<()> {
     let (workspace, project, project_dir) = resolve_project(project_name)?;
     let env = build_port_env(&workspace, &project)?;
 
@@ -24,7 +100,56 @@ pub fn run(project_name: Option<String>, command: Vec<String>) -> Result<()> {
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn resolve_project(project_name: Option<String>) -> Result<(String, Project, PathBuf)> {
+// ── Project resolution ──
+
+/// Resolve project for orchestrator mode given the raw positional args.
+///
+/// Tries each interpretation in order:
+/// 1. Empty positionals → current project
+/// 2. First positional looks like a project (workspace/project or @-prefixed
+///    or NOT a service key in current project) → use it as project, optional
+///    second positional is the service identifier
+/// 3. First positional is a service key in current project → current project,
+///    optional second positional may override project
+fn resolve_project_from_positional(positional: &[String]) -> Result<(String, Project, PathBuf)> {
+    if positional.is_empty() {
+        return resolve_project(None);
+    }
+
+    // Try interpreting first positional as a project name first; if that
+    // fails, fall back to current project (the token may then be a service
+    // identifier, which the caller resolves).
+    //
+    // For two-positional invocations like `pm run back api`, the second arg
+    // is the project. We always consult the second slot when present.
+    if let Some(second) = positional.get(1) {
+        return resolve_project(Some(second.clone()));
+    }
+
+    // Single positional. We don't know yet whether it's a service or a
+    // project. Try project resolution; if the project exists, use it (and
+    // start ALL services). If not, fall back to current project (and treat
+    // the token as a service hint).
+    match resolve_project(Some(positional[0].clone())) {
+        Ok(t) => Ok(t),
+        Err(_) => resolve_project(None),
+    }
+}
+
+/// Among the positional args, identify which (if any) is a service key in
+/// the given services map. Service identifiers take precedence over project
+/// identifiers when ambiguous, per the spec.
+fn first_service_token(
+    positional: &[String],
+    services: &HashMap<String, proj::ServiceDef>,
+) -> Option<String> {
+    positional
+        .iter()
+        .find(|tok| services.contains_key(*tok))
+        .cloned()
+}
+
+pub fn resolve_project(project_name: Option<String>) -> Result<(String, Project, PathBuf)> {
     let (config, manifest) = load_state()?;
 
     let project = match project_name {
@@ -66,7 +191,9 @@ fn resolve_project(project_name: Option<String>) -> Result<(String, Project, Pat
     Ok((project.workspace.clone(), project, project_dir))
 }
 
-fn build_port_env(workspace: &str, project: &Project) -> Result<HashMap<String, String>> {
+// ── Environment variable construction (shared with orchestrator) ──
+
+pub fn build_port_env(workspace: &str, project: &Project) -> Result<HashMap<String, String>> {
     let ports = load_ports()?;
     let project_key = format!("{workspace}/{}", project.name);
 
@@ -160,9 +287,29 @@ mod tests {
 
     #[test]
     fn db_name_no_local_suffix() {
-        // BREAKING change in v0.4.0: ensure no `_local` is appended.
         let name = local_database_name("work", "api");
         assert!(!name.ends_with("_local"));
         assert_eq!(name, "work_api");
+    }
+
+    #[test]
+    fn first_service_token_finds_match() {
+        let mut services = HashMap::new();
+        services.insert("front".to_string(), proj::ServiceDef::default());
+        services.insert("back".to_string(), proj::ServiceDef::default());
+
+        let tokens = vec!["api".to_string(), "back".to_string()];
+        let found = first_service_token(&tokens, &services);
+        assert_eq!(found, Some("back".to_string()));
+    }
+
+    #[test]
+    fn first_service_token_returns_none_when_absent() {
+        let mut services = HashMap::new();
+        services.insert("front".to_string(), proj::ServiceDef::default());
+
+        let tokens = vec!["unknown-token".to_string()];
+        let found = first_service_token(&tokens, &services);
+        assert_eq!(found, None);
     }
 }
