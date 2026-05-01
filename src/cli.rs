@@ -473,6 +473,17 @@ pub enum PortsCommand {
         #[arg(long)]
         service: String,
     },
+
+    /// View or update the shared local Postgres/Redis ports
+    Shared {
+        /// Set the shared Postgres port
+        #[arg(long)]
+        postgres: Option<u16>,
+
+        /// Set the shared Redis port
+        #[arg(long)]
+        redis: Option<u16>,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]

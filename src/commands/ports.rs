@@ -3,7 +3,7 @@ use crate::config::{load_ports, save_ports};
 use crate::error::PmError;
 use crate::models::{PortKind, PortProject, PortService, PortsData, Project};
 use crate::state::{detect_current_project, load_state, parse_target, project_path_display};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use colored::Colorize;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -22,26 +22,50 @@ pub fn run(cmd: PortsCommand) -> Result<()> {
         PortsCommand::Release { project, kind } => release(project, kind),
         PortsCommand::Lock { project, service } => lock(project, service, true),
         PortsCommand::Unlock { project, service } => lock(project, service, false),
+        PortsCommand::Shared { postgres, redis } => shared(postgres, redis),
     }
 }
 
 fn list() -> Result<()> {
     let ports = load_ports()?;
-    let rows = collect_rows(&ports, None);
+    print_shared_section(&ports);
 
+    let rows = collect_rows(&ports, None);
     if rows.is_empty() {
+        println!();
         println!("{}", "(no ports allocated)".dimmed());
         return Ok(());
     }
 
+    println!();
     print_rows(&rows);
     Ok(())
+}
+
+fn print_shared_section(ports: &PortsData) {
+    println!("{}", "SHARED".bold());
+    println!(
+        "  {:<10} {:<6} {}",
+        "SERVICE".bold(),
+        "PORT".bold(),
+        "STATUS".bold()
+    );
+    print_shared_row("postgres", ports.shared.postgres_port);
+    print_shared_row("redis", ports.shared.redis_port);
 }
 
 fn assign(project_name: Option<String>, kinds: Vec<PortKind>, force: bool) -> Result<()> {
     let (workspace, project, path) = resolve_project(project_name)?;
     let project_key = project_key(&workspace, &project.name);
     let kinds = normalize_kinds(kinds);
+
+    if let Some(shared_kind) = kinds.iter().find(|k| k.is_shared()) {
+        return Err(anyhow!(
+            "{} is a shared kind and cannot be assigned per project. Use `pm ports shared` to view or update the shared local Postgres/Redis ports.",
+            shared_kind.as_str()
+        ));
+    }
+
     let mut ports = load_ports()?;
 
     ensure_project_entry(&mut ports, &project_key, &workspace, &project, &path);
@@ -115,27 +139,36 @@ fn check(project_name: Option<String>, all: bool) -> Result<()> {
         Some(project_key(&workspace, &project.name))
     };
 
+    print_shared_section(&ports);
+    let shared_bound = !is_port_available(ports.shared.postgres_port)
+        || !is_port_available(ports.shared.redis_port);
+
     let rows = collect_rows(&ports, filter.as_deref());
     if rows.is_empty() {
-        println!("{}", "(no ports allocated)".dimmed());
-        return Ok(());
+        println!();
+        println!("{}", "(no per-project ports allocated)".dimmed());
+    } else {
+        println!();
+        print_rows(&rows);
     }
 
-    print_rows(&rows);
-
-    let has_issue = rows
+    let has_per_project_issue = rows
         .iter()
         .any(|row| row.status == "duplicate" || row.status == "bound");
 
-    if has_issue {
-        println!();
+    println!();
+    if has_per_project_issue {
         println!(
             "{} {}",
             "!".yellow(),
             "Review duplicate rows. Bound means localhost already has a listener on that port."
         );
+    } else if shared_bound {
+        println!(
+            "{} Shared infra port is bound (expected if your local Postgres/Redis is running).",
+            "i".cyan()
+        );
     } else {
-        println!();
         println!("{} No port conflicts found", "✓".green());
     }
 
@@ -169,6 +202,10 @@ fn repair(project_name: Option<String>) -> Result<()> {
         else {
             continue;
         };
+
+        if service.kind.is_shared() {
+            continue;
+        }
 
         if duplicates.get(&service.port).copied().unwrap_or(0) <= 1 {
             continue;
@@ -288,9 +325,68 @@ fn lock(project_name: Option<String>, service_key: String, locked: bool) -> Resu
     Ok(())
 }
 
+fn shared(postgres: Option<u16>, redis: Option<u16>) -> Result<()> {
+    if let Some(0) = postgres {
+        return Err(anyhow!("Invalid postgres port: 0"));
+    }
+    if let Some(0) = redis {
+        return Err(anyhow!("Invalid redis port: 0"));
+    }
+
+    let mut ports = load_ports()?;
+
+    if postgres.is_none() && redis.is_none() {
+        println!(
+            "  {:<10} {:<6} {}",
+            "SERVICE".bold(),
+            "PORT".bold(),
+            "STATUS".bold()
+        );
+        print_shared_row("postgres", ports.shared.postgres_port);
+        print_shared_row("redis", ports.shared.redis_port);
+        return Ok(());
+    }
+
+    if let Some(port) = postgres {
+        ports.shared.postgres_port = port;
+        if !is_port_available(port) {
+            println!(
+                "{} shared postgres port {} is currently bound on 127.0.0.1",
+                "!".yellow(),
+                port
+            );
+        }
+        println!("{} shared.postgres = {}", "✓".green(), port);
+    }
+
+    if let Some(port) = redis {
+        ports.shared.redis_port = port;
+        if !is_port_available(port) {
+            println!(
+                "{} shared redis port {} is currently bound on 127.0.0.1",
+                "!".yellow(),
+                port
+            );
+        }
+        println!("{} shared.redis = {}", "✓".green(), port);
+    }
+
+    save_ports(&ports)?;
+    Ok(())
+}
+
+fn print_shared_row(name: &str, port: u16) {
+    let status = if is_port_available(port) {
+        "free"
+    } else {
+        "bound"
+    };
+    println!("  {:<10} {:<6} {}", name, port, status);
+}
+
 fn normalize_kinds(kinds: Vec<PortKind>) -> Vec<PortKind> {
     if kinds.is_empty() {
-        vec![PortKind::Backend, PortKind::Database, PortKind::Redis]
+        vec![PortKind::Backend]
     } else {
         kinds
     }
