@@ -110,10 +110,14 @@ fn build_port_env(workspace: &str, project: &Project) -> Result<HashMap<String, 
 }
 
 /// Build the local Postgres database name for a project, in the form
-/// `{workspace}_{project}_local`. Non-`[a-z0-9_]` characters are replaced
-/// with `_`, and the entire result is lowercased.
-fn local_database_name(workspace: &str, project: &str) -> String {
-    let raw = format!("{workspace}_{project}_local");
+/// `{workspace}_{project}`. Non-`[a-z0-9_]` characters are replaced with
+/// `_`, and the entire result is lowercased.
+///
+/// **BREAKING (v0.4.0):** the trailing `_local` suffix used in v0.3.0 has
+/// been removed. v0.3.0 users with existing `<ws>_<proj>_local` databases
+/// receive a stderr migration notice on first orchestrator-mode `pm run`.
+pub fn local_database_name(workspace: &str, project: &str) -> String {
+    let raw = format!("{workspace}_{project}");
     raw.chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || ch == '_' {
@@ -131,12 +135,12 @@ mod tests {
 
     #[test]
     fn db_name_replaces_hyphens() {
-        assert_eq!(local_database_name("work", "my-app"), "work_my_app_local");
+        assert_eq!(local_database_name("work", "my-app"), "work_my_app");
     }
 
     #[test]
     fn db_name_lowercases() {
-        assert_eq!(local_database_name("Work", "MyApp"), "work_myapp_local");
+        assert_eq!(local_database_name("Work", "MyApp"), "work_myapp");
     }
 
     #[test]
@@ -145,12 +149,20 @@ mod tests {
             local_database_name("a", "api"),
             local_database_name("b", "api"),
         );
-        assert_eq!(local_database_name("a", "api"), "a_api_local");
-        assert_eq!(local_database_name("b", "api"), "b_api_local");
+        assert_eq!(local_database_name("a", "api"), "a_api");
+        assert_eq!(local_database_name("b", "api"), "b_api");
     }
 
     #[test]
     fn db_name_replaces_non_alnum() {
-        assert_eq!(local_database_name("ws.1", "p@y"), "ws_1_p_y_local");
+        assert_eq!(local_database_name("ws.1", "p@y"), "ws_1_p_y");
+    }
+
+    #[test]
+    fn db_name_no_local_suffix() {
+        // BREAKING change in v0.4.0: ensure no `_local` is appended.
+        let name = local_database_name("work", "api");
+        assert!(!name.ends_with("_local"));
+        assert_eq!(name, "work_api");
     }
 }
