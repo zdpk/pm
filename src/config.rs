@@ -1,10 +1,11 @@
 use crate::error::PmError;
 use crate::models::{
     Config, HistoryData, LegacyProjectsData, LegacyWorkspacesData, Manifest, PortsData, Project,
-    RepoSpec, Workspace,
+    RepoSpec, SharedInfra, Workspace,
 };
 use crate::path::{collapse_path, expand_path};
 use anyhow::Result;
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -49,6 +50,10 @@ pub fn history_path() -> PathBuf {
 
 pub fn ports_path() -> PathBuf {
     config_dir().join("ports.json")
+}
+
+pub fn ports_backup_path_v1() -> PathBuf {
+    config_dir().join("ports.json.bak.v1")
 }
 
 pub fn repo_specs_dir() -> PathBuf {
@@ -98,16 +103,69 @@ pub fn load_ports() -> Result<PortsData> {
     ensure_initialized()?;
     let path = ports_path();
     if !path.exists() {
-        return Ok(PortsData::default());
+        let defaults = PortsData::default();
+        save_ports(&defaults)?;
+        return Ok(defaults);
     }
-    let content = fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&content)?)
+    let content = fs::read_to_string(&path)?;
+    let raw: Value = serde_json::from_str(&content)?;
+
+    let needs_migration = !matches!(raw.get("version").and_then(Value::as_u64), Some(v) if v >= 2);
+
+    if needs_migration {
+        let migrated = migrate_ports_v1_to_v2(&raw)?;
+        let backup = ports_backup_path_v1();
+        if !backup.exists() {
+            fs::write(&backup, &content)?;
+        }
+        save_ports(&migrated)?;
+        eprintln!(
+            "pm: migrated ports.json v1 → v2; backup saved to {}",
+            backup.display()
+        );
+        return Ok(migrated);
+    }
+
+    Ok(serde_json::from_value(raw)?)
 }
 
 pub fn save_ports(ports: &PortsData) -> Result<()> {
     let content = serde_json::to_string_pretty(ports)?;
     fs::write(ports_path(), content)?;
     Ok(())
+}
+
+fn migrate_ports_v1_to_v2(raw: &Value) -> Result<PortsData> {
+    let mut value = raw.clone();
+    let obj = value.as_object_mut().ok_or_else(|| {
+        anyhow::anyhow!("Invalid ports.json: expected an object at the top level")
+    })?;
+
+    if let Some(projects) = obj.get_mut("projects").and_then(Value::as_object_mut) {
+        for project in projects.values_mut() {
+            if let Some(services) = project
+                .as_object_mut()
+                .and_then(|p| p.get_mut("services"))
+                .and_then(Value::as_object_mut)
+            {
+                services.retain(|_, service| {
+                    let kind = service.get("kind").and_then(Value::as_str);
+                    !matches!(kind, Some("database") | Some("redis"))
+                });
+            }
+        }
+    }
+
+    if let Some(ranges) = obj.get_mut("ranges").and_then(Value::as_object_mut) {
+        ranges.remove("database");
+        ranges.remove("redis");
+    }
+
+    obj.entry("shared")
+        .or_insert_with(|| serde_json::to_value(SharedInfra::default()).unwrap());
+    obj.insert("version".to_string(), Value::from(2u32));
+
+    Ok(serde_json::from_value(value)?)
 }
 
 // ──────────────────────────────────────────────
@@ -310,5 +368,80 @@ trait LegacySystem {
 impl LegacySystem for crate::models::LegacyWorkspace {
     fn is_system(&self) -> bool {
         self.name.starts_with('.')
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_v1_drops_shared_kinds_and_injects_shared_defaults() {
+        let v1 = serde_json::json!({
+            "version": 1,
+            "ranges": {
+                "frontend": { "start": 10000, "end": 19999 },
+                "backend":  { "start": 20000, "end": 29999 },
+                "database": { "start": 30000, "end": 39999 },
+                "redis":    { "start": 40000, "end": 44999 },
+                "infra":    { "start": 45000, "end": 49999 }
+            },
+            "projects": {
+                "work/api": {
+                    "workspace": "work",
+                    "project": "api",
+                    "path": "~/work/api",
+                    "services": {
+                        "back":  { "kind": "backend",  "env": "APP_PORT",            "port": 20100 },
+                        "db":    { "kind": "database", "env": "LOCAL_POSTGRES_PORT", "port": 30100 },
+                        "redis": { "kind": "redis",    "env": "LOCAL_REDIS_PORT",    "port": 40100 }
+                    }
+                }
+            }
+        });
+
+        let migrated = migrate_ports_v1_to_v2(&v1).expect("migration should succeed");
+
+        assert_eq!(migrated.version, 2);
+        assert_eq!(migrated.shared.postgres_port, 5432);
+        assert_eq!(migrated.shared.redis_port, 6379);
+        assert!(!migrated
+            .ranges
+            .contains_key(&crate::models::PortKind::Database));
+        assert!(!migrated
+            .ranges
+            .contains_key(&crate::models::PortKind::Redis));
+
+        let project = migrated
+            .projects
+            .get("work/api")
+            .expect("project preserved");
+        assert!(project.services.contains_key("back"));
+        assert!(!project.services.contains_key("db"));
+        assert!(!project.services.contains_key("redis"));
+    }
+
+    #[test]
+    fn migrate_handles_missing_version_field() {
+        let raw = serde_json::json!({
+            "ranges": {},
+            "projects": {}
+        });
+        let migrated = migrate_ports_v1_to_v2(&raw).expect("migration should succeed");
+        assert_eq!(migrated.version, 2);
+        assert_eq!(migrated.shared.postgres_port, 5432);
+    }
+
+    #[test]
+    fn migrate_preserves_existing_shared_field() {
+        let raw = serde_json::json!({
+            "version": 1,
+            "shared": { "postgres_port": 5500, "redis_port": 6500 },
+            "ranges": {},
+            "projects": {}
+        });
+        let migrated = migrate_ports_v1_to_v2(&raw).expect("migration should succeed");
+        assert_eq!(migrated.shared.postgres_port, 5500);
+        assert_eq!(migrated.shared.redis_port, 6500);
     }
 }
