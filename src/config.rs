@@ -444,4 +444,45 @@ mod tests {
         assert_eq!(migrated.shared.postgres_port, 5500);
         assert_eq!(migrated.shared.redis_port, 6500);
     }
+
+    #[test]
+    fn config_loads_with_default_dev_section_when_missing() {
+        // Existing v0.3.0 config.json files do not have a `dev` section.
+        // After v0.4.0, loading such a file MUST fill in DevConfig::default().
+        let raw = serde_json::json!({
+            "editor": "vim",
+            "git_host": "https://github.com",
+            "base_root": "~/work",
+            "current_workspace": "default"
+        });
+        let cfg: crate::models::Config =
+            serde_json::from_value(raw).expect("legacy config should load");
+        assert!(cfg.dev.auto_start_docker);
+        assert_eq!(cfg.dev.proxy_port, 7100);
+        assert_eq!(cfg.dev.control_port, 7101);
+        assert_eq!(cfg.dev.postgres_image, "postgres:16");
+        assert_eq!(cfg.dev.redis_image, "redis:7");
+    }
+
+    #[test]
+    fn config_dev_section_overrides_apply() {
+        let raw = serde_json::json!({
+            "editor": "vim",
+            "git_host": "https://github.com",
+            "base_root": "~/work",
+            "current_workspace": "default",
+            "dev": {
+                "auto_start_docker": false,
+                "proxy_port": 8080,
+                "postgres_image": "postgres:15"
+            }
+        });
+        let cfg: crate::models::Config = serde_json::from_value(raw).expect("config should load");
+        assert!(!cfg.dev.auto_start_docker);
+        assert_eq!(cfg.dev.proxy_port, 8080);
+        assert_eq!(cfg.dev.postgres_image, "postgres:15");
+        // unspecified fields fall back to defaults
+        assert_eq!(cfg.dev.control_port, 7101);
+        assert_eq!(cfg.dev.redis_image, "redis:7");
+    }
 }

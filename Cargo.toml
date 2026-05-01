@@ -46,6 +46,9 @@ similar = "2.6"
 regex = "1.11"
 walkdir = "2.5"
 
+# Postgres client (sync, used for auto database creation)
+postgres = "0.19"
+
 [dev-dependencies]
 tempfile = "3"
 

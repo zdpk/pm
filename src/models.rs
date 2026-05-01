@@ -32,6 +32,63 @@ pub struct Config {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_repo: Option<ConfigRepoSettings>,
+
+    #[serde(default)]
+    pub dev: DevConfig,
+}
+
+/// Local dev orchestrator configuration (v0.4.0+).
+///
+/// Controls behavior of `pm run` orchestrator mode: Docker auto-start,
+/// daemon listen ports, and shared infra container images.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevConfig {
+    #[serde(default = "default_auto_start_docker")]
+    pub auto_start_docker: bool,
+
+    #[serde(default = "default_proxy_port")]
+    pub proxy_port: u16,
+
+    #[serde(default = "default_control_port")]
+    pub control_port: u16,
+
+    #[serde(default = "default_postgres_image")]
+    pub postgres_image: String,
+
+    #[serde(default = "default_redis_image")]
+    pub redis_image: String,
+}
+
+fn default_auto_start_docker() -> bool {
+    true
+}
+
+fn default_proxy_port() -> u16 {
+    7100
+}
+
+fn default_control_port() -> u16 {
+    7101
+}
+
+fn default_postgres_image() -> String {
+    "postgres:16".to_string()
+}
+
+fn default_redis_image() -> String {
+    "redis:7".to_string()
+}
+
+impl Default for DevConfig {
+    fn default() -> Self {
+        Self {
+            auto_start_docker: default_auto_start_docker(),
+            proxy_port: default_proxy_port(),
+            control_port: default_control_port(),
+            postgres_image: default_postgres_image(),
+            redis_image: default_redis_image(),
+        }
+    }
 }
 
 fn default_editor() -> String {
@@ -62,6 +119,7 @@ impl Default for Config {
             current_workspace: default_workspace(),
             current_project: None,
             config_repo: None,
+            dev: DevConfig::default(),
         }
     }
 }
