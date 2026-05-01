@@ -289,6 +289,13 @@ pub enum ProjectCommand {
         /// Skip all prompts (non-interactive mode)
         #[arg(short = 'y', long = "no-interactive")]
         yes: bool,
+
+        /// Do not auto-add a default `services:` section to .proj.yaml.
+        /// Default behaviour: a single service named after the framework's
+        /// kind (e.g. `front` for nextjs) is registered so `pm run` works
+        /// out of the box.
+        #[arg(long = "no-services")]
+        no_services: bool,
     },
 
     /// Sync config files to latest config repo version

@@ -19,7 +19,17 @@ pub fn run(cmd: ProjectCommand) -> Result<()> {
             hooks,
             all,
             yes,
-        } => cmd_init(language, framework, ci, docker, hooks, all, yes),
+            no_services,
+        } => cmd_init(
+            language,
+            framework,
+            ci,
+            docker,
+            hooks,
+            all,
+            yes,
+            no_services,
+        ),
         ProjectCommand::Add {
             language,
             framework,
@@ -88,6 +98,7 @@ fn cmd_update() -> Result<()> {
 
 // ── pm project init ──
 
+#[allow(clippy::too_many_arguments)] // each flag corresponds to a CLI flag
 fn cmd_init(
     language: Option<String>,
     framework: Option<String>,
@@ -96,6 +107,7 @@ fn cmd_init(
     hooks: bool,
     all: bool,
     yes: bool,
+    no_services: bool,
 ) -> Result<()> {
     let repo_path = ensure_repo()?;
     let cwd = std::env::current_dir()?;
@@ -141,12 +153,28 @@ fn cmd_init(
         Vec::new()
     };
 
+    // pnpm + Turbopack convention: warn if a competing lockfile is present
+    // when initializing a Next.js project. We do not auto-delete; we surface
+    // the issue and let the user clean up.
+    if fw.as_deref() == Some("nextjs") {
+        warn_on_competing_lockfiles(&cwd);
+    }
+
+    // Auto-add a default `services:` entry so `pm run` works out of the box.
+    // Disable with --no-services. Currently we register a single service
+    // named after the framework's primary kind.
+    let services = if no_services {
+        Default::default()
+    } else {
+        default_services_for_framework(fw.as_deref())
+    };
+
     let proj_config = ProjConfig {
         language: lang.clone(),
         framework: fw.clone(),
         config_version: String::new(),
         includes,
-        services: Default::default(),
+        services,
     };
     let source_files = proj::collect_all_source_files(&repo_path, &proj_config)?;
 
@@ -752,5 +780,88 @@ fn try_update_manifest_proj_meta(
     });
     if let Err(e) = state::save_state(&config, &manifest) {
         eprintln!("{} Failed to update manifest: {}", "!".yellow(), e);
+    }
+}
+
+// ── Next.js / pnpm convention helpers ──
+
+/// Warn (do not abort) when a non-pnpm lockfile is found in a Next.js init.
+/// pm enforces pnpm + Turbopack as the project convention.
+fn warn_on_competing_lockfiles(project_dir: &Path) {
+    for (lockfile, package_manager) in [
+        ("package-lock.json", "npm"),
+        ("yarn.lock", "yarn"),
+        ("bun.lockb", "bun"),
+    ] {
+        if project_dir.join(lockfile).exists() {
+            eprintln!(
+                "{} {} found — pm projects expect pnpm. \
+                 Remove `{}` and run `pnpm install` to switch.",
+                "!".yellow(),
+                lockfile,
+                lockfile,
+            );
+            let _ = package_manager;
+        }
+    }
+}
+
+/// Default `services:` block to write into `.proj.yaml` when the user runs
+/// `pm proj init` without `--no-services`.
+///
+/// The intent is "minimum viable orchestrator" — a single service named
+/// after the framework's role so `pm run` works out of the box. The user
+/// is expected to extend the section (`back`, additional `front`s, etc.)
+/// as needed.
+pub fn default_services_for_framework(
+    framework: Option<&str>,
+) -> std::collections::HashMap<String, proj::ServiceDef> {
+    let mut map = std::collections::HashMap::new();
+    let key = match framework {
+        Some("nextjs") | Some("vite") | Some("flutter") => "front",
+        Some("nestjs") | Some("axum") | Some("fastapi") => "back",
+        // Unknown / generic frameworks: skip auto-add to avoid creating a
+        // service entry the user did not ask for.
+        _ => return map,
+    };
+    let def = proj::ServiceDef {
+        framework: framework.map(|s| s.to_string()),
+        ..Default::default()
+    };
+    map.insert(key.to_string(), def);
+    map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_services_nextjs_creates_front() {
+        let m = default_services_for_framework(Some("nextjs"));
+        assert!(m.contains_key("front"));
+        assert_eq!(
+            m["front"].framework.as_deref(),
+            Some("nextjs"),
+            "service framework should match project framework",
+        );
+    }
+
+    #[test]
+    fn default_services_axum_creates_back() {
+        let m = default_services_for_framework(Some("axum"));
+        assert!(m.contains_key("back"));
+    }
+
+    #[test]
+    fn default_services_unknown_returns_empty() {
+        let m = default_services_for_framework(Some("rocket"));
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn default_services_none_returns_empty() {
+        let m = default_services_for_framework(None);
+        assert!(m.is_empty());
     }
 }
