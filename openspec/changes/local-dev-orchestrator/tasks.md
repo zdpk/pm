@@ -73,36 +73,36 @@
 
 ## 9. Service 기동 (`pm run` orchestrator 모드)
 
-- [ ] 9.1 `commands/run.rs` 의 grammar disambiguation: `--` 있으면 v0.3.0 모드, 없고 services 정의 있으면 orchestrator 모드
-- [ ] 9.2 첫 인자가 `.proj.yaml` services 키면 service identifier, 아니면 project name 으로 해석 (services 우선)
-- [ ] 9.3 orchestrator 모드 진입 시: `ensure_postgres` → `ensure_redis` → `ensure_database` → `ensure_daemon` → `register_routes` → spawn dev_cmd
-- [ ] 9.4 dev_cmd spawn: `current_dir = service.dir`, env vars (LOCAL_POSTGRES_PORT 등) 주입, stdout/stderr 를 service log file 로 redirect
-- [ ] 9.5 spawned service 의 PID 를 `~/.config/pm/state/services.json` 에 저장 (`{project_key, service: {pid, started_at, port}}`)
-- [ ] 9.6 SIGINT 처리: foreground 실행 시 Ctrl+C 로 spawned service 종료 + routes.json 에서 제거
-- [ ] 9.7 `pm run` 인자 0 → 모든 service, `pm run <svc>` → 한 service 만
-- [ ] 9.8 `pm run <svc> <project>` → 다른 project 의 service 도 가능 (workspace 정규화)
+- [x] 9.1 `commands/run.rs` 의 grammar disambiguation: `--` 있으면 v0.3.0 legacy 모드, 없고 services 정의 있으면 orchestrator 모드
+- [x] 9.2 첫 인자가 `.proj.yaml` services 키면 service identifier, 아니면 project name 으로 해석 (`first_service_token`)
+- [x] 9.3 orchestrator 진입 시: ensure_postgres → ensure_redis → ensure_database → ensure_daemon → 각 service spawn → register_routes
+- [x] 9.4 dev_cmd spawn: `current_dir = service.dir`, env vars (build_port_env + service-specific port) 주입, stdout/stderr 를 service log file 로 redirect
+- [x] 9.5 spawned service 의 PID/port/started_at/log_path/dev_cmd 를 `~/.config/pm/services.json` 에 저장
+- [x] 9.6 SIGINT 격리: spawned service 는 `setsid()` 로 새 session 이라 부모 셸 Ctrl+C 영향 안 받음. 명시적 `pm stop` 으로만 종료
+- [x] 9.7 `pm run` 인자 0 → 모든 service, `pm run <svc>` → 한 service 만 (`pick_services` 분기)
+- [x] 9.8 `pm run <svc> <project>` → 다른 project 의 service 가능 (`resolve_project_from_positional`)
 
 ## 10. `pm logs` / `pm stop`
 
-- [ ] 10.1 `Commands::Logs { service, project }` CLI 추가
-- [ ] 10.2 `pm logs <service>` — `tail -f ~/.config/pm/logs/<workspace>_<project>_<service>.log` 동등 구현 (notify crate 또는 polling)
-- [ ] 10.3 `Commands::Stop { service, project }` CLI 추가
-- [ ] 10.4 `pm stop` (인자 0) → 현재 project 의 모든 service SIGTERM
-- [ ] 10.5 `pm stop <svc>` → 해당 service 만
-- [ ] 10.6 종료 후 services.json 갱신 + routes.json 항목 제거
+- [x] 10.1 `Commands::Logs { service, project }` CLI 추가
+- [x] 10.2 `pm logs <service>` — `tail -f` 동등 구현 (100ms polling, file rotation 감지 시 reopen)
+- [x] 10.3 `Commands::Stop { service, project }` CLI 추가
+- [x] 10.4 `pm stop` (인자 0) → 현재 project 의 모든 service SIGTERM (2초 대기 후 SIGKILL fallback)
+- [x] 10.5 `pm stop <svc>` → 해당 service 만
+- [x] 10.6 종료 후 services.json 갱신 + routes.json 항목 제거
 
 ## 11. 로그 파일 rotation
 
-- [ ] 11.1 `LogWriter` 구조체 — append + size check
-- [ ] 11.2 10MiB 초과 시 `.log → .log.1`, `.log.1 → .log.2` ... `.log.3` 까지, 그 위는 삭제
-- [ ] 11.3 단위 테스트: rotation 트리거 + 오래된 파일 삭제 검증
+- [x] 11.1 `src/log_rotation.rs` 신규 모듈 — `rotate_if_needed`/`rotate` 함수
+- [x] 11.2 10MiB 초과 시 spawn 시점에 `.log → .log.1 → .log.2 → .log.3`, .log.4 는 삭제. v0.4.0 은 spawn-시점 rotation 만 (online rotation 은 후속)
+- [x] 11.3 단위 테스트 4개: 임계 미달 noop, 초과 시 rotation, 4번 연속 rotation 후 .log.1~3 만 남음, 부재 파일 noop
 
 ## 12. `pm proxy` 명령
 
-- [ ] 12.1 `Commands::Proxy(ProxyCommand)` — Status / Stop / Start
-- [ ] 12.2 `pm proxy status` → control plane `/status` 호출, 결과 출력
-- [ ] 12.3 `pm proxy stop` → `/stop` 호출, daemon.pid 삭제 대기
-- [ ] 12.4 `pm proxy start --foreground` → 데몬을 foreground 로 실행 (디버깅용)
+- [x] 12.1 `Commands::Proxy(ProxyCommand)` — Status / Start / Stop (Stage 2 완료)
+- [x] 12.2 `pm proxy status` → control plane `/status` 호출, PID/uptime/proxy_port/control_port/routes_count 출력
+- [x] 12.3 `pm proxy stop` → `/stop` 호출, daemon.pid 삭제 대기 (최대 2초)
+- [x] 12.4 `pm proxy start --foreground` → 데몬을 foreground 로 실행 (디버깅용)
 
 ## 13. Next.js 컨벤션 enforcement
 
