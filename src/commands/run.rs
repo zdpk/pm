@@ -1,8 +1,8 @@
 use crate::config::load_ports;
 use crate::error::PmError;
-use crate::models::{PortKind, Project};
+use crate::models::Project;
 use crate::state::{detect_current_project, load_state, parse_target, project_path};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
@@ -69,57 +69,88 @@ fn resolve_project(project_name: Option<String>) -> Result<(String, Project, Pat
 fn build_port_env(workspace: &str, project: &Project) -> Result<HashMap<String, String>> {
     let ports = load_ports()?;
     let project_key = format!("{workspace}/{}", project.name);
-    let entry = ports.projects.get(&project_key).ok_or_else(|| {
-        anyhow!(
-            "No ports allocated for '{}'. Run 'pm ports assign {}' first.",
-            project.name,
-            project.name
-        )
-    })?;
 
     let mut env = HashMap::new();
     env.insert("PM_WORKSPACE".to_string(), workspace.to_string());
     env.insert("PM_PROJECT".to_string(), project.name.clone());
 
-    for service in entry.services.values() {
-        env.insert(service.env.clone(), service.port.to_string());
+    let postgres_port = ports.shared.postgres_port;
+    let redis_port = ports.shared.redis_port;
+    let db_name = local_database_name(workspace, &project.name);
 
-        match service.kind {
-            PortKind::Backend => {
+    env.insert("LOCAL_POSTGRES_PORT".to_string(), postgres_port.to_string());
+    env.insert(
+        "DATABASE_URL".to_string(),
+        format!("postgres://postgres:postgres@127.0.0.1:{postgres_port}/{db_name}"),
+    );
+    env.insert("LOCAL_REDIS_PORT".to_string(), redis_port.to_string());
+    env.insert(
+        "REDIS_URL".to_string(),
+        format!("redis://127.0.0.1:{redis_port}"),
+    );
+    env.insert(
+        "REDIS_KEY_PREFIX".to_string(),
+        format!("{workspace}:{}", project.name),
+    );
+
+    if let Some(entry) = ports.projects.get(&project_key) {
+        for service in entry.services.values() {
+            if service.kind.is_shared() {
+                continue;
+            }
+            env.insert(service.env.clone(), service.port.to_string());
+
+            if matches!(service.kind, crate::models::PortKind::Backend) {
                 env.insert("APP_HOST".to_string(), "127.0.0.1".to_string());
             }
-            PortKind::Database => {
-                env.insert(
-                    "DATABASE_URL".to_string(),
-                    format!(
-                        "postgres://postgres:postgres@127.0.0.1:{}/{}_local",
-                        service.port,
-                        local_database_name(&project.name)
-                    ),
-                );
-            }
-            PortKind::Redis => {
-                env.insert(
-                    "REDIS_URL".to_string(),
-                    format!("redis://127.0.0.1:{}", service.port),
-                );
-            }
-            PortKind::Frontend | PortKind::Infra => {}
         }
     }
 
     Ok(env)
 }
 
-fn local_database_name(project_name: &str) -> String {
-    project_name
-        .chars()
+/// Build the local Postgres database name for a project, in the form
+/// `{workspace}_{project}_local`. Non-`[a-z0-9_]` characters are replaced
+/// with `_`, and the entire result is lowercased.
+fn local_database_name(workspace: &str, project: &str) -> String {
+    let raw = format!("{workspace}_{project}_local");
+    raw.chars()
         .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
                 ch.to_ascii_lowercase()
             } else {
                 '_'
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn db_name_replaces_hyphens() {
+        assert_eq!(local_database_name("work", "my-app"), "work_my_app_local");
+    }
+
+    #[test]
+    fn db_name_lowercases() {
+        assert_eq!(local_database_name("Work", "MyApp"), "work_myapp_local");
+    }
+
+    #[test]
+    fn db_name_workspace_separates_collisions() {
+        assert_ne!(
+            local_database_name("a", "api"),
+            local_database_name("b", "api"),
+        );
+        assert_eq!(local_database_name("a", "api"), "a_api_local");
+        assert_eq!(local_database_name("b", "api"), "b_api_local");
+    }
+
+    #[test]
+    fn db_name_replaces_non_alnum() {
+        assert_eq!(local_database_name("ws.1", "p@y"), "ws_1_p_y_local");
+    }
 }
