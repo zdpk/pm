@@ -146,6 +146,7 @@ fn cmd_init(
         framework: fw.clone(),
         config_version: String::new(),
         includes,
+        services: Default::default(),
     };
     let source_files = proj::collect_all_source_files(&repo_path, &proj_config)?;
 
@@ -229,6 +230,7 @@ fn cmd_add(language: Option<String>, framework: Option<String>) -> Result<()> {
         framework: fw.clone(),
         config_version: head.clone(),
         includes: Vec::new(),
+        services: Default::default(),
     };
     proj::save_proj_config(&cwd, &proj_config)?;
 

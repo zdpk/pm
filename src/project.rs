@@ -1,10 +1,11 @@
 use crate::error::PmError;
 use crate::git;
+use crate::models::PortKind;
 use crate::path::expand_path;
 use anyhow::Result;
 use git2::Repository;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,6 +23,120 @@ pub struct ProjConfig {
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub includes: Vec<String>,
+
+    /// Optional service definitions enabling `pm run` orchestrator mode.
+    ///
+    /// When present, `pm run` (with no `--`) will spawn the configured services
+    /// instead of treating the first argument as a project name.
+    /// When absent or empty, `pm run` falls back to v0.3.0 grammar.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub services: HashMap<String, ServiceDef>,
+}
+
+/// A single service entry under `.proj.yaml` `services:`.
+///
+/// All fields are optional. Missing values are inferred from the project's
+/// (or service-level) `framework` via [`resolve_service_defaults`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ServiceDef {
+    /// Working directory relative to project root. Defaults to `.`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
+
+    /// Dev command to spawn. Inferred from `framework` if absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dev_cmd: Option<String>,
+
+    /// Port allocation kind. Inferred from `framework` if absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_kind: Option<PortKind>,
+
+    /// Service-level framework override. Falls back to project framework.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+
+    /// Reserved for path-based routing (Phase 2). Currently parsed but ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Fully resolved service definition with framework defaults applied.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // wired in by Stage 2 (orchestrator service spawn)
+pub struct ResolvedService {
+    pub dir: String,
+    pub dev_cmd: String,
+    pub port_kind: PortKind,
+    pub framework: Option<String>,
+    /// Reserved for Phase 2 path-based routing. Always `None` in v0.4.0.
+    pub path: Option<String>,
+}
+
+/// Resolve a [`ServiceDef`] into a [`ResolvedService`] using framework-driven defaults.
+///
+/// Resolution order for each field:
+/// 1. Explicit value in `def`
+/// 2. Default derived from the effective framework (`def.framework` or `project_framework`)
+/// 3. Hard error if no framework is available and the field is required
+#[allow(dead_code)] // wired in by Stage 2 (orchestrator service spawn)
+pub fn resolve_service_defaults(
+    def: &ServiceDef,
+    project_framework: Option<&str>,
+) -> Result<ResolvedService> {
+    let framework = def
+        .framework
+        .as_deref()
+        .or(project_framework)
+        .map(|s| s.to_string());
+
+    let dir = def.dir.clone().unwrap_or_else(|| ".".to_string());
+
+    let (default_cmd, default_kind) = framework_defaults(framework.as_deref());
+
+    let dev_cmd = def.dev_cmd.clone().or(default_cmd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "service has no dev_cmd and no framework default available; \
+             specify dev_cmd or set framework explicitly"
+        )
+    })?;
+
+    let port_kind = def.port_kind.or(default_kind).ok_or_else(|| {
+        anyhow::anyhow!(
+            "service has no port_kind and no framework default available; \
+             specify port_kind or set framework explicitly"
+        )
+    })?;
+
+    Ok(ResolvedService {
+        dir,
+        dev_cmd,
+        port_kind,
+        framework,
+        path: def.path.clone(),
+    })
+}
+
+/// Framework → (default dev_cmd, default port_kind).
+///
+/// See `design.md` D9 for the canonical table. Next.js follows the
+/// pnpm + Turbopack convention.
+fn framework_defaults(framework: Option<&str>) -> (Option<String>, Option<PortKind>) {
+    match framework {
+        Some("nextjs") => (
+            Some("pnpm next dev --turbopack".to_string()),
+            Some(PortKind::Frontend),
+        ),
+        Some("vite") => (Some("pnpm dev".to_string()), Some(PortKind::Frontend)),
+        Some("nestjs") => (Some("pnpm start:dev".to_string()), Some(PortKind::Backend)),
+        Some("axum") => (Some("cargo run".to_string()), Some(PortKind::Backend)),
+        Some("clap") => (Some("cargo run".to_string()), Some(PortKind::Backend)),
+        Some("fastapi") => (
+            Some("uvicorn main:app --reload".to_string()),
+            Some(PortKind::Backend),
+        ),
+        Some("flutter") => (Some("flutter run".to_string()), Some(PortKind::Frontend)),
+        _ => (None, None),
+    }
 }
 
 // ── Config repo manifest schema ──
@@ -500,6 +615,7 @@ mod tests {
             framework: Some("axum".to_string()),
             config_version: "abc1234".to_string(),
             includes: vec!["ci".to_string(), "docker".to_string()],
+            services: Default::default(),
         };
         save_proj_config(dir.path(), &config).unwrap();
 
@@ -518,6 +634,7 @@ mod tests {
             framework: None,
             config_version: "def5678".to_string(),
             includes: Vec::new(),
+            services: Default::default(),
         };
         save_proj_config(dir.path(), &config).unwrap();
 
@@ -1096,16 +1213,12 @@ mod tests {
 
         let files = load_config_manifest(dir.path(), "rust", None).unwrap();
         assert_eq!(files.len(), 2); // rustfmt.toml + .gitignore
-        assert!(
-            files
-                .iter()
-                .any(|(_, e)| e.path == "rustfmt.toml" && e.strategy == FileStrategy::Managed)
-        );
-        assert!(
-            files
-                .iter()
-                .any(|(_, e)| e.path == ".gitignore" && e.strategy == FileStrategy::Merged)
-        );
+        assert!(files
+            .iter()
+            .any(|(_, e)| e.path == "rustfmt.toml" && e.strategy == FileStrategy::Managed));
+        assert!(files
+            .iter()
+            .any(|(_, e)| e.path == ".gitignore" && e.strategy == FileStrategy::Merged));
     }
 
     #[test]
@@ -1115,11 +1228,9 @@ mod tests {
 
         let files = load_config_manifest(dir.path(), "rust", Some("axum")).unwrap();
         assert_eq!(files.len(), 3); // common(2) + axum(1)
-        assert!(
-            files
-                .iter()
-                .any(|(_, e)| e.path == "Dockerfile" && e.strategy == FileStrategy::Template)
-        );
+        assert!(files
+            .iter()
+            .any(|(_, e)| e.path == "Dockerfile" && e.strategy == FileStrategy::Template));
     }
 
     #[test]
@@ -1161,6 +1272,7 @@ mod tests {
             framework: Some("axum".to_string()),
             config_version: String::new(),
             includes: vec!["ci".to_string()],
+            services: Default::default(),
         };
         let files = collect_all_source_files(dir.path(), &config).unwrap();
         // common(2) + axum(1) + shared(1) + ci(1)
@@ -1205,6 +1317,7 @@ mod tests {
             framework: Some("axum".to_string()),
             config_version: String::new(),
             includes: Vec::new(),
+            services: Default::default(),
         };
         let files = collect_all_source_files(repo.path(), &config).unwrap();
 
@@ -1222,7 +1335,7 @@ mod tests {
         let gitignore = fs::read_to_string(project.path().join(".gitignore")).unwrap();
         assert!(gitignore.contains("*.log")); // original preserved
         assert!(gitignore.contains("/target")); // merged from source
-        // Template: created
+                                                // Template: created
         assert_eq!(
             fs::read_to_string(project.path().join("Dockerfile")).unwrap(),
             "FROM rust:1.78"
@@ -1247,6 +1360,7 @@ mod tests {
             framework: Some("axum".to_string()),
             config_version: String::new(),
             includes: Vec::new(),
+            services: Default::default(),
         };
         let files = collect_all_source_files(repo.path(), &config).unwrap();
         for (source, entry) in &files {
@@ -1314,5 +1428,105 @@ mod tests {
     fn test_has_files_with_extension_empty_dir() {
         let dir = TempDir::new().unwrap();
         assert!(!has_files_with_extension(dir.path(), "c"));
+    }
+
+    // ── ServiceDef / resolve_service_defaults tests ──
+
+    #[test]
+    fn nextjs_service_defaults_to_pnpm_turbopack() {
+        let def = ServiceDef::default();
+        let resolved =
+            resolve_service_defaults(&def, Some("nextjs")).expect("nextjs defaults should resolve");
+        assert_eq!(resolved.dev_cmd, "pnpm next dev --turbopack");
+        assert!(matches!(resolved.port_kind, PortKind::Frontend));
+        assert_eq!(resolved.dir, ".");
+    }
+
+    #[test]
+    fn user_dev_cmd_overrides_framework_default() {
+        let def = ServiceDef {
+            dev_cmd: Some("pnpm dev".to_string()),
+            ..Default::default()
+        };
+        let resolved = resolve_service_defaults(&def, Some("nextjs")).unwrap();
+        assert_eq!(resolved.dev_cmd, "pnpm dev");
+    }
+
+    #[test]
+    fn service_level_framework_overrides_project_framework() {
+        let def = ServiceDef {
+            framework: Some("axum".to_string()),
+            ..Default::default()
+        };
+        let resolved = resolve_service_defaults(&def, Some("nextjs")).unwrap();
+        assert_eq!(resolved.dev_cmd, "cargo run");
+        assert!(matches!(resolved.port_kind, PortKind::Backend));
+    }
+
+    #[test]
+    fn missing_framework_and_dev_cmd_errors() {
+        let def = ServiceDef::default();
+        let err = resolve_service_defaults(&def, None).unwrap_err();
+        assert!(err.to_string().contains("dev_cmd"));
+    }
+
+    #[test]
+    fn dir_default_is_dot() {
+        let def = ServiceDef::default();
+        let resolved = resolve_service_defaults(&def, Some("axum")).unwrap();
+        assert_eq!(resolved.dir, ".");
+    }
+
+    #[test]
+    fn dir_user_override_is_respected() {
+        let def = ServiceDef {
+            dir: Some("frontend".to_string()),
+            ..Default::default()
+        };
+        let resolved = resolve_service_defaults(&def, Some("nextjs")).unwrap();
+        assert_eq!(resolved.dir, "frontend");
+    }
+
+    #[test]
+    fn proj_yaml_without_services_section_loads() {
+        let yaml = "language: rust\nframework: axum\nconfig_version: abc123\n";
+        let config: ProjConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.services.is_empty());
+    }
+
+    #[test]
+    fn proj_yaml_with_services_section_loads() {
+        let yaml = r#"
+language: ts
+framework: nextjs
+config_version: abc123
+services:
+  front:
+    framework: nextjs
+  back:
+    framework: axum
+    dir: backend
+"#;
+        let config: ProjConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.services.len(), 2);
+        assert!(config.services.contains_key("front"));
+        let back = &config.services["back"];
+        assert_eq!(back.dir.as_deref(), Some("backend"));
+        assert_eq!(back.framework.as_deref(), Some("axum"));
+    }
+
+    #[test]
+    fn path_field_is_parsed_but_phase_2() {
+        // path-based routing is reserved for Phase 2; we accept the field but ignore it.
+        let yaml = r#"
+language: ts
+framework: nextjs
+config_version: abc123
+services:
+  back:
+    path: /api
+"#;
+        let config: ProjConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.services["back"].path.as_deref(), Some("/api"));
     }
 }
