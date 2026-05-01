@@ -246,7 +246,13 @@ pub fn update_config_repo(url: &str, cache_dir: &str) -> Result<PathBuf> {
 }
 
 pub fn config_repo_head(repo_path: &Path) -> Result<String> {
-    let repo = Repository::open(repo_path)?;
+    // Bundled configs/ shipped alongside the pm binary may not be inside
+    // a git repository. Fall back to a placeholder so `pm proj init` works
+    // for users who installed pm via the release tarball.
+    let repo = match Repository::discover(repo_path) {
+        Ok(r) => r,
+        Err(_) => return Ok("bundled".to_string()),
+    };
     let head = repo.head()?;
     let oid = head
         .target()

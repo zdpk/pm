@@ -5,3 +5,5 @@ files:
     strategy: template
   - path: .dockerignore
     strategy: managed
+  - path: .npmrc
+    strategy: managed
