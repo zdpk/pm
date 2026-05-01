@@ -10,6 +10,7 @@ pub mod path;
 pub mod plugin;
 pub mod ports;
 pub mod project;
+pub mod proxy;
 pub mod remove;
 pub mod repo;
 pub mod run;

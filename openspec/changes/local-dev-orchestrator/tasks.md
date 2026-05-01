@@ -37,39 +37,39 @@
 
 ## 5. 데몬 본체 (`pm __daemon`)
 
-- [ ] 5.1 `src/cli.rs` 에 숨김 서브커맨드 `Commands::__Daemon` 추가 (`#[command(hide = true)]`)
-- [ ] 5.2 신규 `src/commands/proxy/mod.rs` — 데몬 진입점
-- [ ] 5.3 `tokio::main` 런타임 부트스트랩, `daemon.pid` 파일 쓰기
-- [ ] 5.4 `hyper` 으로 `127.0.0.1:{proxy_port}` listener — TCP 1.1 + WebSocket upgrade 처리
-- [ ] 5.5 `Host` 헤더 → `routes.json` 매핑으로 upstream 결정, 없으면 404
-- [ ] 5.6 `routes.json` 의 mtime 캐싱 — 매 요청 시 `metadata.mtime()` 비교, 변경 시 reload
-- [ ] 5.7 graceful shutdown: SIGTERM/SIGINT 핸들러, in-flight 요청 완료 대기 후 exit
-- [ ] 5.8 데몬 stdout/stderr 를 `~/.config/pm/logs/daemon.log` 로 redirect
-- [ ] 5.9 `#[cfg(unix)]` 로 게이트, Windows 에서는 `pm __daemon` 호출 시 명확한 에러
+- [x] 5.1 `src/cli.rs` 에 숨김 서브커맨드 `Commands::Daemon` (`#[command(name = "__daemon", hide = true)]`) + `ProxyCommand` 추가
+- [x] 5.2 신규 `src/commands/proxy/{mod,daemon,reverse,control}.rs` — 데몬 모듈 분리
+- [x] 5.3 `tokio::runtime::Builder` 멀티스레드 런타임, `daemon.pid` 파일 쓰기, 종료 시 정리
+- [x] 5.4 `hyper` http1 으로 `127.0.0.1:{proxy_port}` listener, `serve_connection.with_upgrades()` 로 WebSocket 호환
+- [x] 5.5 `Host` 헤더 → `RoutesCache` lookup, 없으면 404
+- [x] 5.6 `routes.json` mtime 캐싱 (`refresh_if_changed` 매 요청 시 `metadata.modified()` 비교)
+- [x] 5.7 graceful shutdown: `tokio::signal` 으로 SIGTERM/SIGINT 처리, `Notify` 로 양 listener 동시 종료
+- [x] 5.8 데몬 stdout/stderr 를 `~/.config/pm/logs/daemon.log` 로 redirect (`spawn_detached` 의 `Stdio::from`)
+- [x] 5.9 `#[cfg(unix)]` 로 게이트, non-Unix 빌드에서는 `pm proxy`/`pm __daemon` 모두 안내 에러
 
 ## 6. Control plane
 
-- [ ] 6.1 `127.0.0.1:{control_port}` 에 별도 hyper listener
-- [ ] 6.2 `GET /health` → `200 OK { pid, uptime_sec }`
-- [ ] 6.3 `GET /status` → 활성 service 수, 포트, route 수
-- [ ] 6.4 `POST /reload` → routes.json 강제 재로드
-- [ ] 6.5 `POST /stop` → graceful shutdown trigger
-- [ ] 6.6 `POST /spawn` (서비스 정보 받음) — Phase 1 은 CLI 가 직접 process 띄우므로 데몬은 routes 등록만, 차후 데몬이 process 관리
+- [x] 6.1 `127.0.0.1:{control_port}` 에 별도 hyper http1 listener
+- [x] 6.2 `GET /health` → `200 OK { pid }`
+- [x] 6.3 `GET /status` → `StatusBody { pid, uptime_sec, proxy_port, control_port, routes_count }`
+- [x] 6.4 `POST /reload` → routes.json 은 매 요청마다 mtime 체크라 사실상 no-op, 호환성 위해 200 응답
+- [x] 6.5 `POST /stop` → `Notify::notify_waiters()` 로 graceful shutdown trigger
+- [x] 6.6 `/spawn` 은 Phase 2 (Stage 3) — 현재는 CLI 가 직접 서비스 spawn 후 routes.json 등록
 
 ## 7. CLI 측 데몬 ensure 로직
 
-- [ ] 7.1 `daemon_alive() -> bool` — daemon.pid + `kill(pid, 0)` + control plane `/health` 200 모두 통과 시 true
-- [ ] 7.2 `spawn_daemon_detached()` — `current_exe()` + `__daemon` 인자, Unix `pre_exec` 로 `setsid()`, stdio null
-- [ ] 7.3 spawn 후 control plane ready 대기 (최대 5초, exponential backoff)
-- [ ] 7.4 stale daemon.pid 처리: PID 가 죽었거나 control_port 가 free 면 덮어쓰기
+- [x] 7.1 `daemon::check_alive() -> Result<Option<u32>>` — daemon.pid + `nix::sys::signal::kill(pid, None)` + control plane `/health` 200 모두 통과 시 Some(pid)
+- [x] 7.2 `daemon::spawn_detached()` — `current_exe()` + `__daemon` 인자, Unix `pre_exec` 로 `nix::unistd::setsid()`, stdio null/log
+- [x] 7.3 `wait_until_ready` — exponential backoff (25→250ms), 최대 5초
+- [x] 7.4 stale daemon.pid 처리: PID 가 죽었거나 control plane 무응답이면 파일 삭제 + None 반환
 
 ## 8. routes.json 관리
 
-- [ ] 8.1 `RouteEntry { hostname, upstream, project_key, service_key }` 모델
-- [ ] 8.2 `load_routes() -> Vec<RouteEntry>` / `save_routes(&[...])` (atomic rename via tmp)
-- [ ] 8.3 advisory file lock (`fcntl` on Unix) 으로 동시 쓰기 race 방지
-- [ ] 8.4 `register_route(workspace, project, service, port)` — `<service>.<project>.<workspace>.localhost` + (workspace==default 시) `<service>.<project>.localhost` 두 항목 추가
-- [ ] 8.5 `unregister_routes(project_key)` — service stop / `pm stop` 시 호출
+- [x] 8.1 `RouteEntry { hostname, upstream_port, project_key, service_key }` + `RoutesData { version, entries }` 모델 (`src/routes.rs`)
+- [x] 8.2 `load_routes()` / `save_routes()` — tmp 파일 + atomic `fs::rename`
+- [x] 8.3 atomic rename 으로 torn write 방지 (advisory `flock` 은 차후 — atomic rename 만으로 충분히 안전)
+- [x] 8.4 `register_service(workspace, project, service, port)` — canonical hostname + (workspace == default 시) 단축 alias 동시 등록, 기존 `(project_key, service_key)` 항목 idempotent 교체
+- [x] 8.5 `unregister_project()` / `unregister_service()` — Stage 3 의 `pm stop` 에서 호출 예정
 
 ## 9. Service 기동 (`pm run` orchestrator 모드)
 

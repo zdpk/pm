@@ -182,8 +182,36 @@ pub enum Commands {
     #[command(subcommand)]
     Db(DbCommand),
 
+    /// Manage the local-dev-orchestrator daemon
+    #[command(subcommand)]
+    Proxy(ProxyCommand),
+
+    /// (internal) entrypoint for the orchestrator daemon. Hidden from help.
+    #[command(name = "__daemon", hide = true)]
+    Daemon {
+        /// Run in foreground (do not detach). Useful for debugging.
+        #[arg(long)]
+        foreground: bool,
+    },
+
     /// Upgrade PM to the latest version
     Upgrade,
+}
+
+#[derive(Subcommand)]
+pub enum ProxyCommand {
+    /// Show daemon status (PID, uptime, route count)
+    Status,
+
+    /// Start the daemon explicitly (auto-spawned by `pm run` otherwise)
+    Start {
+        /// Run in foreground for debugging
+        #[arg(long)]
+        foreground: bool,
+    },
+
+    /// Stop the daemon (graceful shutdown)
+    Stop,
 }
 
 #[derive(Subcommand)]
