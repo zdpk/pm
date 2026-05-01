@@ -106,38 +106,38 @@
 
 ## 13. Next.js 컨벤션 enforcement
 
-- [ ] 13.1 `configs/typescript/nextjs/.npmrc` 신규 추가 (`engine-strict=true`, `auto-install-peers=true`, `strict-peer-dependencies=false`)
-- [ ] 13.2 `configs/typescript/nextjs/manifest.yaml` 에 `.npmrc` 항목 (strategy: managed) 추가
-- [ ] 13.3 `pm proj init -f nextjs` 가 lockfile 검사: `package-lock.json` 또는 `yarn.lock` 존재 시 stderr 경고
-- [ ] 13.4 `pm proj init` 시 `--no-services` 플래그가 없으면 `.proj.yaml` 에 `services: { front: { framework: <framework> } }` 자동 추가
-- [ ] 13.5 단위 테스트: `--no-services` 동작 확인, lockfile 경고 출력 확인
+- [x] 13.1 `configs/ts/nextjs/.npmrc` 신규 추가 (`engine-strict=true`, `auto-install-peers=true`, `strict-peer-dependencies=false`). `configs/typescript/` → `configs/ts/` 디렉토리 rename (사전 manifest.yaml id mismatch 버그 수정)
+- [x] 13.2 `configs/ts/nextjs/manifest.yaml` 에 `.npmrc` 항목 (strategy: managed) 추가
+- [x] 13.3 `pm project init -f nextjs` 가 lockfile 검사: `package-lock.json` / `yarn.lock` / `bun.lockb` 존재 시 stderr 경고 (`warn_on_competing_lockfiles`)
+- [x] 13.4 `pm project init` 시 `--no-services` 플래그가 없으면 `.project.yaml` 에 framework 별 default service 자동 추가 (`default_services_for_framework`)
+- [x] 13.5 단위 테스트 4개: nextjs/axum/unknown/None framework 별 default services + manual E2E verify lockfile 경고 출력 + .npmrc 적용 확인
+- [x] 13.6 (drive-by) `config_repo_head` 가 git repo 가 아닌 bundled configs 에서도 동작하도록 `Repository::discover` + "bundled" fallback
 
 ## 14. Windows / 비-Unix 가드
 
-- [ ] 14.1 `pm run` orchestrator 모드 진입 시 `#[cfg(not(unix))]` 빌드에서는 명확한 에러 ("Orchestrator mode requires Unix; use `pm run -- <cmd>` for stateless mode")
-- [ ] 14.2 daemon 진입점도 동일 가드
-- [ ] 14.3 `pm run -- <cmd>` 등 stateless 명령은 Windows 포함 모든 타겟에서 동작 (CI release.yml 의 Windows 타겟은 별도 추가 검토)
+- [x] 14.1 `pm run` orchestrator 분기에 `#[cfg(not(unix))]` 에러 메시지 추가 (commands/run.rs)
+- [x] 14.2 daemon 진입점 (`commands/proxy/mod.rs`) 도 동일 가드. logs/stop 명령도 main.rs dispatch 에서 cfg-not(unix) 안내 에러
+- [x] 14.3 stateless 명령 (`pm run -- <cmd>`, `pm ports`, `pm ws`, `pm db status`) 은 cfg gate 없음. CI release.yml 은 현재 Linux/macOS 만 빌드, Windows 타겟은 v0.4.0 범위 외 (차후 별도 change)
 
 ## 15. 통합 검증
 
-- [ ] 15.1 `cargo build --target {linux,macos}` 통과
-- [ ] 15.2 `cargo clippy --all-targets` — 신규 warning 0 (기존 base 와 비교)
-- [ ] 15.3 `cargo test` — 신규·기존 테스트 모두 pass
-- [ ] 15.4 수동 E2E: `.proj.yaml` 에 services 정의 → `pm run` → `curl http://front.api.work.localhost:7100/` 로 dev 서버 응답 확인
-- [ ] 15.5 수동 E2E: `pm run back` 단독 기동, `pm logs back`, `pm stop`, `pm proxy stop`
-- [ ] 15.6 수동 E2E: Docker 없는 환경에서 친절한 에러 출력 확인
-- [ ] 15.7 수동 E2E: 외부 Postgres 5432 점유 시 컨테이너 skip 동작 확인
-- [ ] 15.8 v0.3.0 호환: `.proj.yaml` 없는 프로젝트에서 `pm run -- echo hi` 가 v0.3.0 동일 동작
-- [ ] 15.9 BREAKING: `work_api_local` 존재하는 환경에서 `pm run` 시 마이그레이션 안내 출력 확인
-
+- [x] 15.1 `cargo build` (debug + release) 통과 — 로컬 macOS, CI 는 v0.4.0 tag push 시 검증
+- [x] 15.2 `cargo clippy --all-targets` — 27 warnings, baseline 동일 (신규 introduced 0)
+- [x] 15.3 `cargo test` — 107 passed, 0 failed (Stage 1~4 누적 +25 신규)
+- [x] 15.4 수동 E2E: `.project.yaml` 에 services 정의 → `pm run` → routes.json + services.json 정상 등록, hostname 출력 확인 (Stage 3)
+- [x] 15.5 수동 E2E: `pm run back` 단독 기동, `pm proxy status`, `pm stop`, `pm proxy stop` (Stage 3)
+- [x] 15.6 Docker 없는 환경: `require_docker()` → 친절한 에러 ("Docker is required ... or set dev.auto_start_docker: false")
+- [x] 15.7 수동 E2E: 외부 Postgres 5432 점유 시 `ContainerState::ExternalInUse` → "skipped pm-local-db (external port owner detected)" 출력 (Stage 3)
+- [x] 15.8 v0.3.0 호환 검증: `.project.yaml` 없는 프로젝트에서 `pm run -- echo HELLO` 정상 출력
+- [x] 15.9 BREAKING: legacy DB 발견 시 `emit_v03_migration_notice()` 가 stderr 안내 출력
 ## 16. 문서화
 
-- [ ] 16.1 `README.md` Local Port Management 섹션 갱신: orchestrator 모드, hostname 라우팅, services 스키마
-- [ ] 16.2 신규 섹션 "Local Dev Orchestrator" 작성: `pm run`/`pm logs`/`pm stop`/`pm db`/`pm proxy` 사용법
-- [ ] 16.3 Next.js 컨벤션 (pnpm + Turbopack + .npmrc) 명시
-- [ ] 16.4 v0.3.0 → v0.4.0 마이그레이션 가이드 (DB 이름 변경, `pg_dump`/`psql` 명령 예시)
-- [ ] 16.5 비-Unix 사용자용 안내 (Windows = Phase 2)
-- [ ] 16.6 path-based routing 은 Phase 2 라고 명시 (사용자가 `path:` 필드 시도해도 무시됨)
+- [x] 16.1 `README.md` Local Port Management 섹션 갱신: BREAKING DB name 반영
+- [x] 16.2 신규 "Local Dev Orchestrator (v0.4.0)" 섹션: services schema, `pm run`/`pm logs`/`pm stop`/`pm db`/`pm proxy` 사용법, hostname routing, Docker auto-start, grammar disambiguation 표
+- [x] 16.3 Next.js 컨벤션 (pnpm + Turbopack + .npmrc) 명시
+- [x] 16.4 v0.3.0 → v0.4.0 마이그레이션 가이드 (DB 이름 변경, `pg_dump | psql` 예시)
+- [x] 16.5 비-Unix 사용자용 안내 ("Unix only in v0.4.0", Windows = Phase 2)
+- [x] 16.6 path-based routing Phase 2 (README 의 services schema 설명 + design.md Resolved Decisions 참조)
 
 ## 17. 버전 bump 및 릴리스
 

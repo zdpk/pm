@@ -264,7 +264,7 @@ volumes:
 | `PM_WORKSPACE`       | The current workspace                                                   |
 | `PM_PROJECT`         | The current project                                                     |
 
-Where `{db}` is `{workspace}_{project}_local` with non-alphanumeric characters replaced by `_` and lowercased (e.g. workspace=`work`, project=`my-app` → `work_my_app_local`).
+Where `{db}` is `{workspace}_{project}` with non-alphanumeric characters replaced by `_` and lowercased (e.g. workspace=`work`, project=`my-app` → `work_my_app`). The trailing `_local` suffix used in v0.3.0 has been removed in v0.4.0.
 
 Per-project services additionally inject their environment variable (`APP_PORT`, `FRONTEND_PORT`, `LOCAL_INFRA_PORT`) and, for backend, `APP_HOST=127.0.0.1`.
 
@@ -273,7 +273,17 @@ pm run api -- cargo run
 pm run -- npm run dev
 ```
 
-### Migration from v1
+### Migration from v0.3.0 → v0.4.0
+
+**Database name change (BREAKING)** — pm now uses `{workspace}_{project}` (no `_local` suffix) so the local database name matches production naming. To migrate existing data:
+
+```bash
+pg_dump work_api_local | psql work_api
+```
+
+The orchestrator emits a stderr notice the first time it sees a legacy `<ws>_<proj>_local` database and creates the new one alongside automatically.
+
+### Migration from v1 (v0.3.0)
 
 If you previously ran a version of PM that allocated per-project Database/Redis ports, the first `pm ports` command on the new schema migrates `ports.json` from v1 to v2 automatically:
 
@@ -285,6 +295,120 @@ If you previously ran a version of PM that allocated per-project Database/Redis 
 After migration, point `DATABASE_URL` and `REDIS_URL` consumers at the shared instance and adopt the `REDIS_KEY_PREFIX` convention in app code.
 
 Aliases, `/etc/hosts`, and reverse proxies are not managed.
+
+## Local Dev Orchestrator (v0.4.0)
+
+`pm run` becomes an end-to-end dev environment when a project's `.project.yaml` defines a `services:` section. With one command, pm ensures shared Postgres + Redis are running, the per-project database exists, the routing daemon is alive, and your `front`/`back`/etc. services are spawned with `<service>.<project>.<workspace>.localhost` URLs that resolve through the daemon's reverse proxy.
+
+> **Unix only in v0.4.0** (macOS / Linux). Windows users can still use the stateless v0.3.0 commands (`pm run -- <cmd>`, `pm ports`, `pm ws`, etc.).
+
+### `.project.yaml` services schema
+
+```yaml
+language: ts
+framework: nextjs
+config_version: bundled
+
+services:
+  front:
+    framework: nextjs        # uses pnpm + Turbopack convention
+  back:
+    framework: axum
+    dir: backend             # spawn cwd, default "."
+    dev_cmd: "cargo run"     # framework default if omitted
+    port_kind: backend       # framework default if omitted
+```
+
+`pm proj init -l ts -f nextjs` writes a default `services: { front: { framework: nextjs } }` block. Use `--no-services` to skip.
+
+### Commands
+
+```bash
+# Start all services (and ensure infra)
+pm run
+
+# Start one service
+pm run front
+pm run back
+
+# Specific project
+pm run back myproj
+
+# Tail / stop
+pm logs back
+pm stop                       # stop all services in current project
+pm stop front                 # one service
+
+# Daemon
+pm proxy status
+pm proxy stop
+pm proxy start --foreground   # debug
+
+# Shared containers
+pm db status
+pm db start                   # ensure pm-local-db / pm-local-redis
+pm db stop                    # graceful stop, volumes preserved
+```
+
+### Hostname routing
+
+Services are reachable via `*.localhost` URLs through the proxy on `127.0.0.1:7100`:
+
+```
+front.api.work.localhost:7100  →  front service of work/api
+back.api.work.localhost:7100   →  back service of work/api
+front.blog.localhost:7100      →  front service of default/blog
+                                  (default workspace gets a short alias)
+```
+
+`*.localhost` is auto-resolved to `127.0.0.1` by macOS / Linux / Windows DNS clients (RFC 6761), so no `/etc/hosts` edits are needed.
+
+### Docker auto-start
+
+`pm run` auto-creates and starts:
+- `pm-local-db` container (default `postgres:16`, volume `pm-local-volume`, port 5432)
+- `pm-local-redis` container (default `redis:7`, volume `pm-local-redis-volume`, port 6379)
+
+If port 5432 or 6379 is already bound externally, pm respects that and does not start its own container. Containers persist across `pm run`/`pm stop`; only `pm db stop` shuts them down.
+
+Disable Docker auto-start in `~/.config/pm/config.json`:
+
+```json
+{
+  "dev": {
+    "auto_start_docker": false,
+    "proxy_port": 7100,
+    "control_port": 7101,
+    "postgres_image": "postgres:16",
+    "redis_image": "redis:7"
+  }
+}
+```
+
+### Next.js convention: pnpm + Turbopack
+
+For Next.js services, pm enforces:
+- **pnpm** as the package manager (`engine-strict=true`, `auto-install-peers=true` via bundled `.npmrc`)
+- **Turbopack** for dev builds (`pnpm next dev --turbopack` is the default `dev_cmd`)
+
+`pm proj init -l ts -f nextjs` warns if `package-lock.json` / `yarn.lock` / `bun.lockb` is present.
+
+### `pm run` grammar disambiguation
+
+| Invocation                  | Behavior                                               |
+| --------------------------- | ------------------------------------------------------ |
+| `pm run`                    | All services in current project (orchestrator)         |
+| `pm run front`              | Service `front` in current project                     |
+| `pm run myproj`             | All services in project `myproj`                       |
+| `pm run back api`           | Service `back` in project `api`                        |
+| `pm run myproj -- cmd...`   | Legacy: arbitrary command (v0.3.0 grammar, preserved)  |
+| `pm run -- cmd...`          | Legacy: arbitrary command in current project           |
+
+The presence of `--` always selects legacy mode. `.project.yaml` without a `services:` section also keeps legacy behavior, so v0.3.0 users see no regression.
+
+### Logs and rotation
+
+Each spawned service writes stdout/stderr to `~/.config/pm/logs/<workspace>_<project>_<service>.log`. The file rotates to `.log.1` … `.log.3` at spawn time when it exceeds 10 MiB.
 ## Workspaces
 
 Create and manage workspace roots:
