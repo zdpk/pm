@@ -49,6 +49,14 @@ walkdir = "2.5"
 # Postgres client (sync, used for auto database creation)
 postgres = "0.19"
 
+# Async runtime + HTTP for the local-dev-orchestrator daemon
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "fs", "signal", "sync", "time"] }
+hyper = { version = "1", features = ["server", "http1", "client"] }
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+nix = { version = "0.30", features = ["signal", "process"] }
+
 [dev-dependencies]
 tempfile = "3"
 

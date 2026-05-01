@@ -56,6 +56,23 @@ pub fn ports_backup_path_v1() -> PathBuf {
     config_dir().join("ports.json.bak.v1")
 }
 
+pub fn routes_path() -> PathBuf {
+    config_dir().join("routes.json")
+}
+
+pub fn daemon_pid_path() -> PathBuf {
+    config_dir().join("daemon.pid")
+}
+
+#[allow(dead_code)] // wired in by Stage 3 (services state for `pm logs`/`pm stop`)
+pub fn services_state_path() -> PathBuf {
+    config_dir().join("services.json")
+}
+
+pub fn logs_dir() -> PathBuf {
+    config_dir().join("logs")
+}
+
 pub fn repo_specs_dir() -> PathBuf {
     config_dir().join("repo-specs")
 }
