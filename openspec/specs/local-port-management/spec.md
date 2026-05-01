@@ -68,28 +68,32 @@ The system SHALL persist `~/.config/pm/ports.json` with `version = 2` and a `sha
 - **AND** no backup file is created
 
 ### Requirement: Local database name normalization
-The system SHALL derive the local Postgres database name as `{workspace}_{project}_local`, with characters outside `[a-z0-9_]` replaced by `_` and the entire string lowercased. The function MUST be deterministic and depend only on workspace and project names.
+The system SHALL derive the local Postgres database name as `{workspace}_{project}`, with characters outside `[a-z0-9_]` replaced by `_` and the entire string lowercased. The function MUST be deterministic and depend only on workspace and project names. The trailing `_local` suffix used in v0.3.0 is removed in v0.4.0 to match production database identifiers.
 
 #### Scenario: hyphens become underscores
 - **WHEN** workspace = `work` and project = `my-app`
-- **THEN** the local database name is `work_my_app_local`
+- **THEN** the local database name is `work_my_app`
 
 #### Scenario: case is normalized
 - **WHEN** workspace = `Work` and project = `MyApp`
-- **THEN** the local database name is `work_myapp_local`
+- **THEN** the local database name is `work_myapp`
 
 #### Scenario: same project name in different workspaces yields different names
 - **WHEN** workspaces `a` and `b` both contain a project named `api`
-- **THEN** their database names are `a_api_local` and `b_api_local` respectively
+- **THEN** their database names are `a_api` and `b_api` respectively
+
+#### Scenario: no _local suffix
+- **WHEN** workspace = `work` and project = `api`
+- **THEN** the local database name is `work_api` (no trailing `_local`)
 
 ### Requirement: `pm run` injects shared infrastructure environment variables
-For each invocation of `pm run`, the system SHALL inject environment variables that point to the shared Postgres and Redis instances and to a project-scoped database name and Redis key prefix. The variables `LOCAL_POSTGRES_PORT`, `DATABASE_URL`, `LOCAL_REDIS_PORT`, `REDIS_URL`, and `REDIS_KEY_PREFIX` MUST be present whenever the project has any port allocation or shared infra is configured.
+For each invocation of `pm run`, the system SHALL inject environment variables that point to the shared Postgres and Redis instances and to a project-scoped database name and Redis key prefix. The variables `LOCAL_POSTGRES_PORT`, `DATABASE_URL`, `LOCAL_REDIS_PORT`, `REDIS_URL`, and `REDIS_KEY_PREFIX` MUST be present whenever the project has any port allocation or shared infra is configured. The `DATABASE_URL` SHALL embed the database name as `{workspace}_{project}` (no `_local` suffix).
 
 #### Scenario: postgres environment variables
 - **GIVEN** `shared.postgres_port = 5432` and the project is `work/my-app`
 - **WHEN** `pm run my-app -- env` is invoked
 - **THEN** the spawned process environment includes `LOCAL_POSTGRES_PORT=5432`
-- **AND** `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/work_my_app_local`
+- **AND** `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/work_my_app`
 
 #### Scenario: redis environment variables
 - **GIVEN** `shared.redis_port = 6379` and the project is `work/my-app`
