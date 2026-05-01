@@ -324,6 +324,12 @@ impl PortKind {
         }
     }
 
+    /// Whether this kind is provided by a shared local instance instead of
+    /// a per-project port allocation.
+    pub fn is_shared(self) -> bool {
+        matches!(self, Self::Database | Self::Redis)
+    }
+
     pub fn env_key(self) -> &'static str {
         match self {
             Self::Frontend => "FRONTEND_PORT",
@@ -374,8 +380,25 @@ pub struct PortProject {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedInfra {
+    pub postgres_port: u16,
+    pub redis_port: u16,
+}
+
+impl Default for SharedInfra {
+    fn default() -> Self {
+        Self {
+            postgres_port: 5432,
+            redis_port: 6379,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortsData {
     pub version: u32,
+    #[serde(default)]
+    pub shared: SharedInfra,
     pub ranges: HashMap<PortKind, PortRange>,
     pub projects: HashMap<String, PortProject>,
 }
@@ -398,20 +421,6 @@ impl Default for PortsData {
             },
         );
         ranges.insert(
-            PortKind::Database,
-            PortRange {
-                start: 30000,
-                end: 39999,
-            },
-        );
-        ranges.insert(
-            PortKind::Redis,
-            PortRange {
-                start: 40000,
-                end: 44999,
-            },
-        );
-        ranges.insert(
             PortKind::Infra,
             PortRange {
                 start: 45000,
@@ -420,7 +429,8 @@ impl Default for PortsData {
         );
 
         Self {
-            version: 1,
+            version: 2,
+            shared: SharedInfra::default(),
             ranges,
             projects: HashMap::new(),
         }
