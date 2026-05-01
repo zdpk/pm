@@ -9,6 +9,7 @@ mod path;
 mod plugin;
 mod project;
 mod restore;
+mod routes;
 mod state;
 
 use anyhow::Result;
@@ -78,6 +79,8 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Plugin(command) => commands::plugin::run(command),
         Commands::Project(cmd) => commands::project::run(cmd),
         Commands::Db(cmd) => commands::db::run(cmd),
+        Commands::Proxy(cmd) => commands::proxy::run(cmd),
+        Commands::Daemon { foreground } => commands::proxy::run_daemon(foreground),
         Commands::Upgrade => commands::upgrade::run(),
     }
 }
