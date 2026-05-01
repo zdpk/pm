@@ -173,48 +173,116 @@ This feature tracks spec/template versions only. It does not render template fil
 
 ## Local Port Management
 
-PM stores project host ports in `~/.config/pm/ports.json`. It does not rewrite `.env`; `pm run` injects port values as environment variable overrides.
+PM stores port allocations in `~/.config/pm/ports.json`. It does not rewrite `.env`; `pm run` injects values as environment variable overrides.
 
-Default ranges:
+PM splits ports into two categories:
+
+- **Per-project ports** for `frontend`, `backend`, and `infra`. Each project gets its own port from the configured range.
+- **Shared infrastructure** for `database` (Postgres) and `redis`. A single local instance is shared across all projects, and isolation is achieved by database name and Redis key prefix.
+
+Per-project default ranges:
 
 ```text
 frontend  10000-19999
 backend   20000-29999
-database  30000-39999
-redis     40000-44999
 infra     45000-49999
 ```
 
+Shared infrastructure defaults:
+
+```text
+postgres  5432
+redis     6379
+```
+
+### Per-project ports
+
 ```bash
-# Assign backend + database + redis ports
+# Assign a backend port (default kind)
 pm ports assign api
 
-# Assign a frontend port
+# Assign frontend or infra explicitly
 pm ports assign web --kind frontend
+pm ports assign worker --kind infra
 
-# List all allocated ports
+# `--kind database` and `--kind redis` are rejected — use `pm ports shared`
+
+# List, check, repair, lock, release
 pm ports list
-
-# Check current project, one project, or all projects
 pm ports check
 pm ports check api
 pm ports check --all
-
-# Repair duplicate ports
 pm ports repair api
-
-# Lock a port for OAuth or other stable callback needs
 pm ports lock api --service back
-
-# Release allocations
 pm ports release api
+```
 
-# Run with port env overrides
+### Shared Postgres / Redis
+
+```bash
+# View current shared ports
+pm ports shared
+
+# Update one or both
+pm ports shared --postgres 5433
+pm ports shared --redis 6380
+pm ports shared --postgres 5433 --redis 6380
+```
+
+Run a single Postgres + Redis container locally and point `pm` at their host ports. Each project gets a dedicated database name and Redis key prefix, so the same instance can serve many projects without conflict.
+
+Example `docker-compose.yml`:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+volumes:
+  pgdata:
+```
+
+### `pm run` environment variables
+
+`pm run` always injects the following:
+
+| Variable             | Value                                                                   |
+| -------------------- | ----------------------------------------------------------------------- |
+| `LOCAL_POSTGRES_PORT`| `shared.postgres_port` (e.g. `5432`)                                    |
+| `DATABASE_URL`       | `postgres://postgres:postgres@127.0.0.1:{shared.postgres_port}/{db}`    |
+| `LOCAL_REDIS_PORT`   | `shared.redis_port` (e.g. `6379`)                                       |
+| `REDIS_URL`          | `redis://127.0.0.1:{shared.redis_port}`                                 |
+| `REDIS_KEY_PREFIX`   | `{workspace}:{project}` — apply at the application layer for isolation  |
+| `PM_WORKSPACE`       | The current workspace                                                   |
+| `PM_PROJECT`         | The current project                                                     |
+
+Where `{db}` is `{workspace}_{project}_local` with non-alphanumeric characters replaced by `_` and lowercased (e.g. workspace=`work`, project=`my-app` → `work_my_app_local`).
+
+Per-project services additionally inject their environment variable (`APP_PORT`, `FRONTEND_PORT`, `LOCAL_INFRA_PORT`) and, for backend, `APP_HOST=127.0.0.1`.
+
+```bash
 pm run api -- cargo run
 pm run -- npm run dev
 ```
 
-`pm run` injects values such as `APP_PORT`, `FRONTEND_PORT`, `LOCAL_POSTGRES_PORT`, `LOCAL_REDIS_PORT`, `DATABASE_URL`, and `REDIS_URL` based on allocated services.
+### Migration from v1
+
+If you previously ran a version of PM that allocated per-project Database/Redis ports, the first `pm ports` command on the new schema migrates `ports.json` from v1 to v2 automatically:
+
+- The original file is backed up to `~/.config/pm/ports.json.bak.v1`.
+- All per-project `database` / `redis` services are removed.
+- Default `shared` values (`postgres_port: 5432`, `redis_port: 6379`) are injected.
+- A one-line notice is printed to stderr.
+
+After migration, point `DATABASE_URL` and `REDIS_URL` consumers at the shared instance and adopt the `REDIS_KEY_PREFIX` convention in app code.
 
 Aliases, `/etc/hosts`, and reverse proxies are not managed.
 ## Workspaces
