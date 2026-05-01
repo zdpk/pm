@@ -12,7 +12,7 @@ mod restore;
 mod state;
 
 use anyhow::Result;
-use clap::{Parser, error::ErrorKind};
+use clap::{error::ErrorKind, Parser};
 use cli::{Cli, Commands};
 
 fn main() -> Result<()> {
@@ -77,6 +77,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Check => commands::check::run(),
         Commands::Plugin(command) => commands::plugin::run(command),
         Commands::Project(cmd) => commands::project::run(cmd),
+        Commands::Db(cmd) => commands::db::run(cmd),
         Commands::Upgrade => commands::upgrade::run(),
     }
 }

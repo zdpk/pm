@@ -178,8 +178,24 @@ pub enum Commands {
     #[command(visible_alias = "p", subcommand)]
     Project(ProjectCommand),
 
+    /// Manage shared local Postgres / Redis containers
+    #[command(subcommand)]
+    Db(DbCommand),
+
     /// Upgrade PM to the latest version
     Upgrade,
+}
+
+#[derive(Subcommand)]
+pub enum DbCommand {
+    /// Show shared Postgres / Redis container status
+    Status,
+
+    /// Start shared Postgres / Redis containers
+    Start,
+
+    /// Stop shared Postgres / Redis containers (volumes preserved)
+    Stop,
 }
 
 #[derive(Subcommand)]

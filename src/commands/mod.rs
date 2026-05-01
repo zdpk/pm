@@ -1,6 +1,7 @@
 pub mod add;
 pub mod check;
 pub mod completion;
+pub mod db;
 pub mod history;
 pub mod init;
 pub mod list;
