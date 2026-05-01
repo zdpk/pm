@@ -4,7 +4,7 @@ use crate::models::RepoSpecMetadata;
 use crate::state::{
     detect_current_project, find_project, find_project_mut, load_state, save_state,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use colored::Colorize;
 
