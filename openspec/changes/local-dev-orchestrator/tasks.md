@@ -141,7 +141,7 @@
 
 ## 17. 버전 bump 및 릴리스
 
-- [ ] 17.1 Cargo.toml version 0.3.0 → 0.4.0
-- [ ] 17.2 git commit + tag v0.4.0
-- [ ] 17.3 GitHub Actions release workflow 정상 동작 확인 (3 타겟 빌드)
-- [ ] 17.4 GitHub Release notes 에 BREAKING 명시
+- [x] 17.1 Cargo.toml version 0.3.0 → 0.4.0
+- [x] 17.2 git commit + tag v0.4.0
+- [x] 17.3 GitHub Actions release workflow 정상 동작 확인 (3 타겟 빌드)
+- [x] 17.4 GitHub Release notes 에 BREAKING 명시 (release workflow `generate_release_notes: true` + commit messages 의 BREAKING 표기)
