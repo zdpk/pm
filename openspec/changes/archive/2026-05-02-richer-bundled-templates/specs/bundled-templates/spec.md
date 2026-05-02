@@ -42,15 +42,7 @@ The initial set of embedded categories SHALL be:
 - **THEN** the command exits non-zero with a message listing valid categories
 
 ### Requirement: pm-managed block in `.gitignore`
-A `.gitignore` file produced or maintained by `pm project init` / `sync` / `gitignore` SHALL embed the synthesized template content inside a clearly delimited region:
-
-```
-# >>> pm managed (do not edit; run `pm project gitignore` to refresh) >>>
-... synthesized lines ...
-# <<< pm managed <<<
-```
-
-`pm` SHALL only read or modify the content between these markers. Any content outside the markers (above, between, or below) is the user's region and SHALL be preserved byte-for-byte by `pm project sync` and `pm project gitignore`.
+A `.gitignore` file produced or maintained by `pm project init` / `sync` / `gitignore` SHALL embed the synthesized template content inside a clearly delimited region between two literal marker lines: `# >>> pm managed (do not edit; run \`pm project gitignore\` to refresh) >>>` and `# <<< pm managed <<<`. `pm` SHALL only read or modify the content between these markers. Any content outside the markers (above, between, or below) is the user's region and SHALL be preserved byte-for-byte by `pm project sync` and `pm project gitignore`.
 
 #### Scenario: user lines outside the marker are preserved
 - **GIVEN** a `.gitignore` containing user lines, then a marker block, then more user lines
