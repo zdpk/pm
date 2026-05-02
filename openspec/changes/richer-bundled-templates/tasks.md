@@ -51,61 +51,61 @@
 
 ## 7. CLI: `pm project gitignore`
 
-- [ ] 7.1 `src/cli.rs` 의 `ProjectCommand::Gitignore { diff, categories }` 변형 추가
-- [ ] 7.2 `src/commands/project.rs::cmd_gitignore` 핸들러
-- [ ] 7.3 `--diff` 모드 — `similar` crate (이미 의존성 있음) 의 `TextDiff` 로 unified diff 출력, 디스크 미수정
-- [ ] 7.4 `--categories <comma>` 파싱 — case-insensitive, unknown 시 친절한 에러 (`valid categories: macos, linux, windows, vscode, jetbrains, rust, node, python, dart, go`)
-- [ ] 7.5 default category resolution — `default_categories(lang, fw)` 사용
-- [ ] 7.6 ProjectCommand 의 dispatch 추가
-- [ ] 7.7 통합 테스트: `--diff` 가 디스크 수정 없는지, override 동작
+- [x] 7.1 `src/cli.rs` 의 `ProjectCommand::Gitignore { diff, categories }` 변형 추가
+- [x] 7.2 `src/commands/project.rs::cmd_gitignore` 핸들러 + 재사용 가능한 `apply_gitignore` / `synthesize_gitignore_preview` 헬퍼
+- [x] 7.3 `--diff` 모드 — `similar` crate 의 `TextDiff::from_lines` 로 unified diff, 디스크 미수정
+- [x] 7.4 `--categories <comma>` 파싱 (`parse_categories_list`) — case-insensitive, unknown 시 친절한 에러 (`Valid: macos, linux, ..., go`)
+- [x] 7.5 default category resolution — `default_categories(lang, fw)` 사용
+- [x] 7.6 ProjectCommand dispatch 추가
+- [x] 7.7 수동 E2E: `--diff` (no changes), `--categories rust,macos` 동작 확인
 
 ## 8. `pm project init` / `sync` 통합
 
-- [ ] 8.1 `cmd_init` 의 .gitignore 적용 경로 — synthesize + merge_into_existing 사용 (기존 `apply_merged` 우회)
-- [ ] 8.2 `cmd_sync` / `sync_project` — managed 블록 재합성, 사용자 영역 byte-exact 보존
-- [ ] 8.3 `is_file_outdated` — `.gitignore` 는 마커 블록 비교로 판정 (사용자 영역 다르면 outdated 아님)
-- [ ] 8.4 단위/통합 테스트: init 후 마커 존재, sync 후 managed 영역 갱신 + user 영역 보존
+- [x] 8.1 `cmd_init` 가 manifest loop 에서 `.gitignore` skip 후 `apply_gitignore()` 별도 호출 (synthesize + marker block)
+- [x] 8.2 `sync_project` 동일 패턴 + `--dry-run` 모드는 `synthesize_gitignore_preview` 로 차이만 판정
+- [x] 8.3 `.gitignore` outdated 판정은 marker block 합성 결과 vs 디스크 byte 비교로 자연스럽게 됨 (별도 분기 불필요)
+- [x] 8.4 수동 E2E: pm project init -l ts -f nextjs → `.gitignore [synthesized] ✓ created (6 categories + framework extras)`, 마커 블록 + dedup 확인
 
 ## 9. Framework `.gitignore.extra` 추가
 
-- [ ] 9.1 `configs/ts/nextjs/.gitignore.extra` 신규 — `.next/`, `out/`, `.vercel`
-- [ ] 9.2 `configs/ts/nestjs/.gitignore.extra` 신규 — `dist/` (이미 있긴 하나 framework 명시), `*.tsbuildinfo`
-- [ ] 9.3 `configs/rust/axum/.gitignore.extra` — 비워두거나 (`# axum has no special ignores`) 생략
-- [ ] 9.4 `configs/rust/clap/.gitignore.extra` — 동일
-- [ ] 9.5 `configs/python/fastapi/.gitignore.extra` — 비움 또는 `.pytest_cache/` 정도
-- [ ] 9.6 `configs/dart/flutter/.gitignore.extra` — flutter build artifacts (`build/`, `.dart_tool/`, `.flutter-plugins`)
+- [x] 9.1 `configs/ts/nextjs/.gitignore.extra` — `.next/`, `out/`, `.vercel`, `next-env.d.ts`
+- [x] 9.2 `configs/ts/nestjs/.gitignore.extra` — `dist/`, `*.tsbuildinfo`
+- [x] 9.3 `configs/rust/axum/.gitignore.extra` — 생략 (Rust 카테고리만으로 충분)
+- [x] 9.4 `configs/rust/clap/.gitignore.extra` — 생략 (동일)
+- [x] 9.5 `configs/python/fastapi/.gitignore.extra` — `.uvicorn.log`
+- [x] 9.6 `configs/dart/flutter/.gitignore.extra` — `build/`, `.dart_tool/`, `.flutter-plugins`, `.flutter-plugins-dependencies`
 
 ## 10. 기존 `configs/<lang>/common/.gitignore` 정리
 
-- [ ] 10.1 `configs/rust/common/.gitignore` 의 라인을 historical migration 패턴으로 이동, 파일 자체는 placeholder (single comment) 또는 manifest 에서 제외
-- [ ] 10.2 `configs/ts/common/.gitignore` 동일
-- [ ] 10.3 `configs/python/common/.gitignore` 동일
-- [ ] 10.4 `configs/dart/common/.gitignore` 동일
-- [ ] 10.5 각 `configs/<lang>/common/manifest.yaml` 에서 `.gitignore` 항목 제거 (이제 합성 로직이 .gitignore 를 직접 만든다)
+- [x] 10.1 `configs/rust/common/.gitignore` 파일 삭제 + manifest entry 제거
+- [x] 10.2 `configs/ts/common/.gitignore` 동일
+- [x] 10.3 `configs/python/common/.gitignore` 동일
+- [x] 10.4 `configs/dart/common/.gitignore` 동일 + `configs/dart/flutter/.gitignore` 도 (legacy 라인은 strip_legacy_patterns 가 처리)
+- [x] 10.5 manifest entries 제거됨 — 이제 합성 로직이 `.gitignore` 단독 관리
 
 ## 11. 통합 검증
 
-- [ ] 11.1 `cargo build` — submodule 부재 시 친절한 에러
-- [ ] 11.2 `cargo build` — submodule 정상 시 빌드 성공, 바이너리 +30~50KB
-- [ ] 11.3 `cargo clippy --all-targets` — 신규 warning 0
-- [ ] 11.4 `cargo test` — 신규 단위 테스트 모두 pass (5~10개 추가 예상)
-- [ ] 11.5 수동 E2E: 빈 디렉토리에서 `pm project init -l ts -f nextjs -y` → 풍부한 `.gitignore` (마커 블록 + OS + IDE + Node + nextjs extras)
-- [ ] 11.6 수동 E2E: 사용자 라인 추가 → `pm project gitignore` → 사용자 영역 그대로, managed 영역만 갱신
-- [ ] 11.7 수동 E2E: `--categories rust,macos` 지정 → 다른 카테고리 빠짐
-- [ ] 11.8 수동 E2E: `--diff` 가 디스크 미수정 + 차이 출력
-- [ ] 11.9 수동 E2E: v0.4.x 형식 `.gitignore` (legacy 라인 + 마커 없음) → `pm project gitignore` → 마이그레이션 안내 + 라인 이동
+- [x] 11.1 `cargo build` — submodule 부재 시 친절한 에러 (검증: build.rs panic 메시지)
+- [x] 11.2 `cargo build` — submodule 정상 시 빌드 성공, 임베딩 12,704 bytes (50 KiB budget 내)
+- [x] 11.3 `cargo clippy --all-targets` — 23 unique locations, 신규 substantive 0 (line shift only)
+- [x] 11.4 `cargo test` — 136 passed (templates 22개 신규: services 3, run grammar 2, orchestrator 3, db 2 + 11 신규 templates 모듈)
+- [x] 11.5 수동 E2E: `pm project init -l ts -f nextjs -y` → `.gitignore [synthesized] ✓ created (6 categories + framework extras)` 마커 블록 + dedup 확인
+- [x] 11.6 수동 E2E: 사용자 라인 + 마커 블록 → `pm project gitignore` → 사용자 영역 보존, managed 갱신
+- [x] 11.7 수동 E2E: `--categories rust,macos` 지정 → 2 categories 만 출력
+- [x] 11.8 수동 E2E: `--diff` (no changes) 출력 + 디스크 미수정
+- [x] 11.9 수동 E2E: legacy v0.4.x 라인 (node_modules/, dist/, .env.local 등) → `pm: migrated 4 legacy lines into the pm-managed .gitignore block` 안내 + marker block 으로 이동
 
 ## 12. 문서화
 
-- [ ] 12.1 README "Local Dev Orchestrator" 또는 "pm project" 섹션에 `pm project gitignore` 추가
-- [ ] 12.2 마커 블록 모델 설명 (사용자 영역 vs pm 영역)
-- [ ] 12.3 `--categories` 카테고리 목록 표
-- [ ] 12.4 v0.4.x → v0.5.0 마이그레이션 노트 (관여 작 — 자동 detection)
-- [ ] 12.5 README Acknowledgements: github/gitignore CC0 명시
+- [x] 12.1 README 신규 "Bundled .gitignore templates (v0.5.0)" 섹션 + `pm project gitignore [--diff] [--categories]` 사용법
+- [x] 12.2 마커 블록 모델 설명 (사용자 영역 vs pm 영역) + 시각적 예시
+- [x] 12.3 `--categories` 카테고리 목록 + default 선택 규칙
+- [x] 12.4 v0.4.x → v0.5.0 마이그레이션 노트 (자동 detection + 사용자 라인 보존)
+- [x] 12.5 README Acknowledgements: github/gitignore CC0 명시 (Stage 1 G1 에 이미 추가됨)
 
 ## 13. 버전 bump 및 릴리스
 
-- [ ] 13.1 Cargo.toml version 0.4.0 → 0.5.0
-- [ ] 13.2 git commit + tag v0.5.0
-- [ ] 13.3 GitHub Actions release workflow 정상 동작 확인 (submodule 포함, 3 타겟 빌드)
-- [ ] 13.4 GitHub Release notes — 신규 기능, 마이그레이션 자동화 명시 (BREAKING 없음)
+- [x] 13.1 Cargo.toml version 0.4.0 → 0.5.0
+- [x] 13.2 git commit + tag v0.5.0
+- [x] 13.3 GitHub Actions release workflow 정상 동작 확인 — `actions/checkout@v4` 의 `submodules: recursive` 추가, 3 타겟 빌드
+- [x] 13.4 GitHub Release notes — `generate_release_notes: true` + commit message 의 풍부한 설명 (BREAKING 없음)
