@@ -5,6 +5,7 @@ edition = "2024"
 description = "Git project directory manager"
 authors = ["x"]
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
 # CLI Framework
