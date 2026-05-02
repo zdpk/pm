@@ -29,27 +29,25 @@
 
 ## 4. 합성 (synthesize) 로직
 
-- [ ] 4.1 `synthesize(categories: &[Category], project_dir: &Path, language: &str, framework: Option<&str>) -> String`
-- [ ] 4.2 각 카테고리 마다 `# === <Header> ===` 헤더 + `# Source: ...` attribution + 컨텐츠
-- [ ] 4.3 Framework-extra: `configs/<lang>/<fw>/.gitignore.extra` 존재 시 마지막에 `# === Framework: <fw> ===` 헤더로 append
-- [ ] 4.4 line-level dedup — 빈 줄과 `#` 주석은 보존, 패턴 라인은 첫 등장만 유지
-- [ ] 4.5 단위 테스트: 카테고리 순서, 헤더 형식, dedup, framework extra 병합
+- [x] 4.1 `synthesize_managed_body(categories, framework_name, framework_extra) -> String`
+- [x] 4.2 각 카테고리: `# === <Category::header()> ===` + `# Source: github/gitignore (CC0)` attribution
+- [x] 4.3 Framework extras: `# === Framework: <name> ===` + `# Source: pm bundled framework extras` attribution. 비어 있으면 skip
+- [x] 4.4 line-level dedup — 빈 줄과 `#` 주석은 보존, 패턴 라인은 첫 등장만 유지 (`HashSet<String>`)
+- [x] 4.5 단위 테스트 7개: 헤더+attribution, 같은 카테고리 두 번 → dedup, comments preserved across sections, framework extra append, empty extra skipped, framework dedup against language category, empty input
 
 ## 5. 마커 블록 (managed region) 로직
 
-- [ ] 5.1 `BEGIN_MARKER` / `END_MARKER` 상수 (정확한 텍스트 고정)
-- [ ] 5.2 `parse_managed_block(content: &str) -> (before: String, managed: Option<String>, after: String)` — 마커 영역 분리
-- [ ] 5.3 `merge_into_existing(existing: &str, new_managed_body: &str) -> String`:
-  - 마커 있으면 in-place 교체
-  - 없으면 파일 끝에 빈 줄 + 새 블록 append
-- [ ] 5.4 단위 테스트: 마커 부재/존재, 파일 끝 빈 줄 처리, 사용자 영역 byte-exact 보존, 마커가 파일 중간/끝일 때
+- [x] 5.1 `BEGIN_MARKER` / `END_MARKER` 상수 (정확한 텍스트 고정 + regression-guard test)
+- [x] 5.2 `parse(content) -> ParsedGitignore { before, managed, after }` — 마커 영역 분리, malformed (BEGIN 만 있음) 은 user content 로 처리
+- [x] 5.3 `merge_into_existing(existing, managed_body) -> String` + `render(parsed, body)` — 마커 있으면 in-place, 없으면 끝에 빈 줄 + 새 블록 append
+- [x] 5.4 단위 테스트 9개: empty file, user-only, full block, BEGIN-only malformed, append, in-place replace, byte-exact preservation, empty input → block created, marker text fixed-constant guard
 
 ## 6. v0.4.x → v0.5.0 마이그레이션 검출
 
-- [ ] 6.1 `LEGACY_PATTERNS: &[&str]` 상수 — D4/spec 의 historical lines
-- [ ] 6.2 `migrate_legacy_lines(user_region: &str) -> (cleaned_user_region: String, migrated_count: usize)` — 사용자 영역에서 historical 라인 제거 + 카운트 반환
-- [ ] 6.3 마이그레이션 결과 stderr 안내 출력 (`pm: migrated <N> lines into the managed block`)
-- [ ] 6.4 단위 테스트: legacy 라인 검출, 사용자 커스텀 라인은 보존
+- [x] 6.1 `LEGACY_PATTERNS: &[&str]` — rust(`/target`, `**/*.rs.bk`, `*.pdb`), ts(`node_modules/`, `dist/`, `.env`, `.env.local`, `*.tsbuildinfo`), python(`__pycache__/`, `*.py[cod]`, `*.egg-info/`, `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `.mypy_cache/`)
+- [x] 6.2 `strip_legacy_patterns(user_region) -> (cleaned, removed_count)` — 정확 매치만 (lookalike 보존), comments/blanks 보존, trailing newline 정책 보존
+- [x] 6.3 `emit_migration_notice(removed)` — stderr 한 줄 안내 (`pm: migrated <N> legacy line(s) into the pm-managed .gitignore block`)
+- [x] 6.4 단위 테스트 6개: rust 라인 검출, user 라인 보존, comments+blanks 보존, lookalikes 미스트립, all-legacy → 빈 결과, no-trailing-newline 입출력 일관
 
 ## 7. CLI: `pm project gitignore`
 

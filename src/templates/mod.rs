@@ -21,6 +21,7 @@
 #![allow(dead_code)] // public API consumed by Stage 2 (cmd_gitignore, synthesize, init/sync)
 
 pub mod embedded;
+pub mod legacy;
 pub mod marker;
 pub mod synthesize;
 
