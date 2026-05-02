@@ -13,6 +13,7 @@ mod restore;
 mod routes;
 mod services;
 mod state;
+mod templates;
 
 use anyhow::Result;
 use clap::{error::ErrorKind, Parser};
