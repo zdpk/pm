@@ -38,6 +38,7 @@ pub fn run(cmd: ProjectCommand) -> Result<()> {
         ProjectCommand::Check { all } => cmd_check(all),
         ProjectCommand::Diff => cmd_diff(),
         ProjectCommand::List => cmd_list(),
+        ProjectCommand::Gitignore { diff, categories } => cmd_gitignore(diff, categories),
     }
 }
 
@@ -190,6 +191,11 @@ fn cmd_init(
     println!("\nApplying config files...");
     let mut applied = 0;
     for (source, entry) in &source_files {
+        // Skip .gitignore here — it is synthesized separately from the
+        // bundled github/gitignore templates after the manifest loop.
+        if entry.path == ".gitignore" {
+            continue;
+        }
         let target = cwd.join(&entry.path);
         let changed = proj::apply_file(source, &target, entry.strategy)?;
         let status = if changed {
@@ -208,6 +214,38 @@ fn cmd_init(
             "✓".green(),
             status
         );
+    }
+
+    // Synthesized .gitignore from bundled github/gitignore templates.
+    match apply_gitignore(&cwd, &lang, fw.as_deref(), None) {
+        Ok(result) if result.wrote => {
+            applied += 1;
+            println!(
+                "  {:<24} [{}]  {} {} ({} categories{})",
+                ".gitignore",
+                "synthesized".dimmed(),
+                "✓".green(),
+                "created".green(),
+                result.categories,
+                if result.framework_extra {
+                    " + framework extras"
+                } else {
+                    ""
+                },
+            );
+        }
+        Ok(_) => {
+            println!(
+                "  {:<24} [{}]  {} {}",
+                ".gitignore",
+                "synthesized".dimmed(),
+                "✓".green(),
+                "unchanged".dimmed()
+            );
+        }
+        Err(e) => {
+            eprintln!("{} .gitignore synthesis failed: {}", "!".yellow(), e);
+        }
     }
 
     let head = proj::config_repo_head(&repo_path)?;
@@ -322,6 +360,10 @@ fn sync_project(
         if entry.strategy == FileStrategy::Template {
             continue;
         }
+        // Skip .gitignore here — handled by the synthesizer below.
+        if entry.path == ".gitignore" {
+            continue;
+        }
         let target = project_dir.join(&entry.path);
 
         if proj::is_file_outdated(source, &target, entry.strategy) {
@@ -339,6 +381,46 @@ fn sync_project(
             updated += 1;
         } else {
             unchanged += 1;
+        }
+    }
+
+    // Re-synthesize .gitignore from bundled templates.
+    if dry_run {
+        // Show whether sync would change .gitignore.
+        match synthesize_gitignore_preview(
+            project_dir,
+            &proj_config.language,
+            proj_config.framework.as_deref(),
+            None,
+        ) {
+            Ok(new_content) => {
+                let existing =
+                    std::fs::read_to_string(project_dir.join(".gitignore")).unwrap_or_default();
+                if existing != new_content {
+                    println!("  {} {} ({})", "~".yellow(), ".gitignore", "synthesized");
+                    updated += 1;
+                } else {
+                    unchanged += 1;
+                }
+            }
+            Err(_) => unchanged += 1,
+        }
+    } else {
+        match apply_gitignore(
+            project_dir,
+            &proj_config.language,
+            proj_config.framework.as_deref(),
+            None,
+        ) {
+            Ok(result) if result.wrote => {
+                println!("  {} {} {}", "✓".green(), ".gitignore", "updated".green());
+                updated += 1;
+            }
+            Ok(_) => unchanged += 1,
+            Err(e) => {
+                eprintln!("{} .gitignore synthesis failed: {}", "!".yellow(), e);
+                unchanged += 1;
+            }
         }
     }
 
@@ -781,6 +863,240 @@ fn try_update_manifest_proj_meta(
     if let Err(e) = state::save_state(&config, &manifest) {
         eprintln!("{} Failed to update manifest: {}", "!".yellow(), e);
     }
+}
+
+// ── pm project gitignore ──
+
+/// Outcome of a gitignore synthesis pass.
+pub struct GitignoreApplyResult {
+    pub wrote: bool,
+    /// Number of v0.4.x legacy lines moved into the managed block.
+    /// Currently logged via stderr inside `apply_gitignore`; exposed here
+    /// for future programmatic use (e.g. tests / `pm project diff`).
+    #[allow(dead_code)]
+    pub migrated_legacy: usize,
+    pub categories: usize,
+    pub framework_extra: bool,
+}
+
+/// Synthesize and write `.gitignore` for the given project directory.
+/// Used by `pm project init`, `pm project sync`, and `pm project gitignore`.
+///
+/// `categories_override` lets the caller force a category set; pass `None`
+/// to use the language-derived defaults.
+pub fn apply_gitignore(
+    project_dir: &Path,
+    language: &str,
+    framework: Option<&str>,
+    categories_override: Option<&[crate::templates::Category]>,
+) -> Result<GitignoreApplyResult> {
+    use crate::templates::{default_categories, legacy, marker, synthesize, Category};
+
+    let resolved: Vec<Category> = match categories_override {
+        Some(list) => list.to_vec(),
+        None => default_categories(language, framework),
+    };
+
+    let framework_extra =
+        framework.and_then(|fw| read_framework_extra(language, fw).ok().flatten());
+
+    let body =
+        synthesize::synthesize_managed_body(&resolved, framework, framework_extra.as_deref());
+
+    let target = project_dir.join(".gitignore");
+    let existing = std::fs::read_to_string(&target).unwrap_or_default();
+
+    // Migrate v0.4.x lines from the user region (only when no marker block
+    // is present yet — once we have a managed block, those lines are
+    // already inside it).
+    let parsed = marker::parse(&existing);
+    let (cleaned_existing, migrated) = if parsed.managed.is_none() {
+        let (cleaned_user, n) = legacy::strip_legacy_patterns(&parsed.before);
+        if n > 0 {
+            (cleaned_user, n)
+        } else {
+            (existing.clone(), 0)
+        }
+    } else {
+        (existing.clone(), 0)
+    };
+
+    let new_content = marker::merge_into_existing(&cleaned_existing, &body);
+
+    if existing == new_content {
+        return Ok(GitignoreApplyResult {
+            wrote: false,
+            migrated_legacy: 0,
+            categories: resolved.len(),
+            framework_extra: framework_extra.is_some(),
+        });
+    }
+
+    std::fs::write(&target, &new_content)?;
+    legacy::emit_migration_notice(migrated);
+    Ok(GitignoreApplyResult {
+        wrote: true,
+        migrated_legacy: migrated,
+        categories: resolved.len(),
+        framework_extra: framework_extra.is_some(),
+    })
+}
+
+/// Render the synthesized `.gitignore` content without writing — used by
+/// `pm project gitignore --diff`.
+pub fn synthesize_gitignore_preview(
+    project_dir: &Path,
+    language: &str,
+    framework: Option<&str>,
+    categories_override: Option<&[crate::templates::Category]>,
+) -> Result<String> {
+    use crate::templates::{default_categories, legacy, marker, synthesize, Category};
+
+    let resolved: Vec<Category> = match categories_override {
+        Some(list) => list.to_vec(),
+        None => default_categories(language, framework),
+    };
+    let framework_extra =
+        framework.and_then(|fw| read_framework_extra(language, fw).ok().flatten());
+    let body =
+        synthesize::synthesize_managed_body(&resolved, framework, framework_extra.as_deref());
+
+    let target = project_dir.join(".gitignore");
+    let existing = std::fs::read_to_string(&target).unwrap_or_default();
+    let parsed = marker::parse(&existing);
+    let cleaned = if parsed.managed.is_none() {
+        let (cleaned_user, _) = legacy::strip_legacy_patterns(&parsed.before);
+        cleaned_user
+    } else {
+        existing
+    };
+    Ok(marker::merge_into_existing(&cleaned, &body))
+}
+
+fn cmd_gitignore(diff: bool, categories: Option<String>) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let proj_config = proj::load_proj_config(&cwd).ok();
+    let language = proj_config
+        .as_ref()
+        .map(|c| c.language.as_str())
+        .unwrap_or("");
+    let framework_str = proj_config.as_ref().and_then(|c| c.framework.clone());
+    let framework = framework_str.as_deref();
+
+    let categories_override = match categories.as_deref() {
+        Some(list) => {
+            let parsed = parse_categories_list(list)?;
+            if parsed.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "no valid categories selected; valid keys: {}",
+                    valid_category_list(),
+                ));
+            }
+            Some(parsed)
+        }
+        None => None,
+    };
+
+    if diff {
+        let new_content = synthesize_gitignore_preview(
+            &cwd,
+            language,
+            framework,
+            categories_override.as_deref(),
+        )?;
+        let target = cwd.join(".gitignore");
+        let existing = std::fs::read_to_string(&target).unwrap_or_default();
+        let diff_text = render_unified_diff(&existing, &new_content, ".gitignore");
+        if diff_text.trim().is_empty() || existing == new_content {
+            println!("{}", "(no changes)".dimmed());
+        } else {
+            print!("{diff_text}");
+        }
+        return Ok(());
+    }
+
+    let result = apply_gitignore(&cwd, language, framework, categories_override.as_deref())?;
+
+    if !result.wrote {
+        println!("{}", ".gitignore is up to date".dimmed());
+        return Ok(());
+    }
+
+    println!(
+        "{} .gitignore ({} categories{})",
+        "✓".green(),
+        result.categories,
+        if result.framework_extra {
+            " + framework extras"
+        } else {
+            ""
+        },
+    );
+    Ok(())
+}
+
+fn parse_categories_list(list: &str) -> Result<Vec<crate::templates::Category>> {
+    use crate::templates::lookup_category;
+    let mut out = Vec::new();
+    for tok in list.split(',') {
+        let tok = tok.trim();
+        if tok.is_empty() {
+            continue;
+        }
+        let cat = lookup_category(tok).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown category '{}'. Valid: {}",
+                tok,
+                valid_category_list(),
+            )
+        })?;
+        if !out.contains(&cat) {
+            out.push(cat);
+        }
+    }
+    Ok(out)
+}
+
+fn valid_category_list() -> String {
+    crate::templates::Category::ALL
+        .iter()
+        .map(|c| c.key())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn read_framework_extra(language: &str, framework: &str) -> Result<Option<String>> {
+    if language.is_empty() || framework.is_empty() {
+        return Ok(None);
+    }
+    let repo_path = ensure_repo()?;
+    let path = repo_path
+        .join(language)
+        .join(framework)
+        .join(".gitignore.extra");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&path)?;
+    Ok(Some(content))
+}
+
+/// Render a minimal unified diff. We use the same `similar` crate that
+/// powers `pm project diff` for consistency.
+fn render_unified_diff(old: &str, new: &str, name: &str) -> String {
+    use similar::TextDiff;
+    let diff = TextDiff::from_lines(old, new);
+    let mut out = format!("--- a/{name}\n+++ b/{name}\n");
+    for change in diff.iter_all_changes() {
+        let sign = match change.tag() {
+            similar::ChangeTag::Delete => "-",
+            similar::ChangeTag::Insert => "+",
+            similar::ChangeTag::Equal => " ",
+        };
+        out.push_str(sign);
+        out.push_str(change.value());
+    }
+    out
 }
 
 // ── Next.js / pnpm convention helpers ──

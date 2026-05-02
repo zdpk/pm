@@ -336,6 +336,25 @@ pub enum ProjectCommand {
     /// List projects managed by proj
     #[command(visible_alias = "ls")]
     List,
+
+    /// Synthesize the project's `.gitignore` from bundled templates.
+    ///
+    /// Writes the file in place by default. With `--diff` only prints the
+    /// unified diff between the current file and the freshly synthesized
+    /// result without writing. With `--categories` the user overrides the
+    /// default category selection (defaults are derived from
+    /// `.proj.yaml`'s `language` and `framework`).
+    Gitignore {
+        /// Show diff against the current `.gitignore` without writing.
+        #[arg(long)]
+        diff: bool,
+
+        /// Comma-separated category list (e.g. `rust,macos,vscode`).
+        /// Overrides the default selection. Use `pm project gitignore`
+        /// without flags to see the auto-derived defaults.
+        #[arg(long)]
+        categories: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

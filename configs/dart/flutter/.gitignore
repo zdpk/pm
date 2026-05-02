@@ -1,7 +1,0 @@
-ios/
-android/.gradle/
-android/app/build/
-**/ios/Flutter/
-**/android/app/src/debug/
-**/android/app/src/profile/
-*.jks
