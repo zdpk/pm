@@ -555,6 +555,10 @@ make fmt
 make lint
 ```
 
+## Acknowledgements
+
+Bundled `.gitignore` templates are derived from [`github/gitignore`](https://github.com/github/gitignore) and are distributed under the [Creative Commons Zero v1.0 Universal](LICENSES/github-gitignore-CC0.txt) (CC0 1.0) public domain dedication. The repository pins a specific commit via the `vendor/github-gitignore/` git submodule; maintainers refresh it on a release-by-release cadence.
+
 ## License
 
-MIT
+`pm` itself is MIT-licensed. See `LICENSES/` for upstream attributions.
