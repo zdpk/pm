@@ -54,7 +54,7 @@ pub fn strip_legacy_patterns(user_region: &str) -> (String, usize) {
             out.push('\n');
             continue;
         }
-        if LEGACY_PATTERNS.iter().any(|p| *p == trimmed) {
+        if LEGACY_PATTERNS.contains(&trimmed) {
             removed += 1;
             continue;
         }

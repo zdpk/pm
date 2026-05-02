@@ -409,6 +409,64 @@ The presence of `--` always selects legacy mode. `.project.yaml` without a `serv
 ### Logs and rotation
 
 Each spawned service writes stdout/stderr to `~/.config/pm/logs/<workspace>_<project>_<service>.log`. The file rotates to `.log.1` … `.log.3` at spawn time when it exceeds 10 MiB.
+
+## Bundled `.gitignore` templates (v0.5.0)
+
+`pm project init` and `pm project sync` now synthesize `.gitignore` from [`github/gitignore`](https://github.com/github/gitignore) (CC0) embedded at build time, layered with framework-specific extras. The result lives inside a fenced block; everything outside is yours to edit:
+
+```
+# user-edited content above the marker is left alone
+my-secrets/
+*.local
+
+# >>> pm managed (do not edit; run `pm project gitignore` to refresh) >>>
+# === OS: macOS ===
+# Source: https://github.com/github/gitignore (CC0)
+.DS_Store
+...
+
+# === Language: Node ===
+# Source: https://github.com/github/gitignore (CC0)
+node_modules/
+...
+
+# === Framework: nextjs ===
+# Source: pm bundled framework extras
+.next/
+.vercel
+# <<< pm managed <<<
+
+# user content below the marker is also preserved
+team-only.txt
+```
+
+### `pm project gitignore` command
+
+```bash
+# Refresh in place (used by init / sync automatically)
+pm project gitignore
+
+# Preview without writing
+pm project gitignore --diff
+
+# Override the auto-derived selection
+pm project gitignore --categories rust,macos,vscode
+```
+
+Default category selection:
+- **OS**: macos, linux, windows (always — for team-safety in cross-platform repos)
+- **IDE**: vscode, jetbrains
+- **Language**: derived from `.project.yaml`'s `language` (rust → Rust, ts/typescript → Node, python → Python, dart → Dart, go → Go)
+- **Framework extras**: `configs/<lang>/<framework>/.gitignore.extra` if present (currently nextjs, nestjs, fastapi, flutter)
+
+`--categories` overrides the default selection entirely. Valid keys: `macos`, `linux`, `windows`, `vscode`, `jetbrains`, `rust`, `node`, `python`, `dart`, `go`. Case-insensitive.
+
+### Migration from v0.4.x
+
+Existing `.gitignore` files keep their pre-v0.5.0 lines until the first sync. On that run, pm detects a fixed set of v0.4.x bundled patterns (`/target`, `node_modules/`, `__pycache__/`, etc.) in the user region and moves them into the new managed block. A one-line stderr notice reports the count. Custom user lines that don't match the legacy set are never touched.
+
+The marker text is a stable contract — changing it requires a future BREAKING release.
+
 ## Workspaces
 
 Create and manage workspace roots:

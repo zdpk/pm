@@ -397,7 +397,7 @@ fn sync_project(
                 let existing =
                     std::fs::read_to_string(project_dir.join(".gitignore")).unwrap_or_default();
                 if existing != new_content {
-                    println!("  {} {} ({})", "~".yellow(), ".gitignore", "synthesized");
+                    println!("  {} .gitignore (synthesized)", "~".yellow());
                     updated += 1;
                 } else {
                     unchanged += 1;
@@ -413,7 +413,7 @@ fn sync_project(
             None,
         ) {
             Ok(result) if result.wrote => {
-                println!("  {} {} {}", "✓".green(), ".gitignore", "updated".green());
+                println!("  {} .gitignore {}", "✓".green(), "updated".green());
                 updated += 1;
             }
             Ok(_) => unchanged += 1,
