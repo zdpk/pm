@@ -1,7 +1,20 @@
 # path-convention Specification
 
 ## Purpose
-TBD - created by archiving change strict-path-convention. Update Purpose after archive.
+
+Define the deterministic mapping between `pm`'s manifest entries and their
+on-disk locations. Every workspace and project must resolve to a single
+predictable path computed from `base_root` and names alone, so that a manifest
+is portable across machines and the filesystem layout is a function of
+declared intent rather than per-machine history.
+
+This spec also draws the source-of-truth boundary that the rest of `pm`
+relies on: the manifest is the authority for *what* is managed (membership
+and metadata); the filesystem is the authority for *whether* a directory
+physically exists. Loading validates path-convention shape only and never
+fails because a directory has been deleted out-of-band — drift between
+declared and observed state is surfaced by reconcile tooling, not hidden.
+
 ## Requirements
 
 ### Requirement: Workspace directory location is determined by name
