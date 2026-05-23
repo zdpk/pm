@@ -1,13 +1,13 @@
 use crate::error::PmError;
-use crate::models::{
-    Config, HistoryData, LegacyProjectsData, LegacyWorkspacesData, Manifest, PortsData, Project,
-    RepoSpec, SharedInfra, Workspace,
-};
-use crate::path::{collapse_path, expand_path};
+use crate::models::{Config, HistoryData, Manifest, PortsData, RepoSpec, SharedInfra};
+use crate::path::{expand_path, validate_project_dir};
 use anyhow::Result;
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+/// Current manifest schema version produced by this build.
+pub const MANIFEST_VERSION: u32 = 4;
 
 /// Get config directory path
 /// - pmd binary: ~/.config/pm-dev/
@@ -79,14 +79,6 @@ pub fn repo_specs_dir() -> PathBuf {
 
 pub fn repo_spec_path(id: &str) -> PathBuf {
     repo_specs_dir().join(format!("{id}.json"))
-}
-
-pub fn projects_path() -> PathBuf {
-    config_dir().join("projects.json")
-}
-
-pub fn workspaces_path() -> PathBuf {
-    config_dir().join("workspaces.json")
 }
 
 pub fn is_initialized() -> bool {
@@ -229,12 +221,82 @@ pub fn list_repo_specs() -> Result<Vec<RepoSpec>> {
 pub fn load_manifest() -> Result<Manifest> {
     ensure_initialized()?;
 
-    if manifest_path().exists() {
-        let content = fs::read_to_string(manifest_path())?;
-        return Ok(serde_json::from_str(&content)?);
+    if !manifest_path().exists() {
+        let manifest = Manifest::default();
+        save_manifest(&manifest)?;
+        return Ok(manifest);
     }
 
-    migrate_legacy_data()
+    let content = fs::read_to_string(manifest_path())?;
+    let raw: Value = serde_json::from_str(&content)?;
+    validate_manifest_shape(&raw)?;
+
+    let manifest: Manifest = serde_json::from_value(raw)?;
+    Ok(manifest)
+}
+
+/// Validate the manifest's *shape* against the strict path convention.
+///
+/// Checks:
+/// - schema version is exactly v4 (older schemas are rejected without migration)
+/// - no workspace carries a legacy `root` override field
+/// - every project's `dir` is a single safe path component
+///
+/// This intentionally does NOT check whether project directories physically
+/// exist (D8: manifest is desired state, filesystem is observed state). A
+/// missing directory must not break manifest loading.
+fn validate_manifest_shape(raw: &Value) -> Result<()> {
+    let obj = raw
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("manifest.json: expected a JSON object at the top level"))?;
+
+    let version = obj
+        .get("version")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow::anyhow!("manifest.json: missing or invalid 'version' field"))?
+        as u32;
+    if version < MANIFEST_VERSION {
+        return Err(PmError::ManifestVersionTooOld(version).into());
+    }
+    if version > MANIFEST_VERSION {
+        return Err(anyhow::anyhow!(
+            "manifest.json: version {} is newer than this build supports (max v{}). Update pm.",
+            version,
+            MANIFEST_VERSION
+        ));
+    }
+
+    if let Some(workspaces) = obj.get("workspaces").and_then(Value::as_array) {
+        for ws in workspaces {
+            let name = ws
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("<unknown>")
+                .to_string();
+            if ws.get("root").is_some() {
+                return Err(PmError::UnsupportedManifestField {
+                    workspace: name,
+                    field: "root",
+                }
+                .into());
+            }
+        }
+    }
+
+    if let Some(projects) = obj.get("projects").and_then(Value::as_array) {
+        for project in projects {
+            let dir = project.get("dir").and_then(Value::as_str).unwrap_or("");
+            if let Err(e) = validate_project_dir(dir) {
+                let name = project
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("<unknown>");
+                return Err(anyhow::anyhow!("project '{}': {}", name, e));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn save_manifest(manifest: &Manifest) -> Result<()> {
@@ -266,131 +328,108 @@ pub fn save_all(config: &Config, manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-pub fn migrate_legacy_data() -> Result<Manifest> {
-    let config = load_config()?;
-
-    if !projects_path().exists() || !workspaces_path().exists() {
-        let manifest = Manifest::default();
-        save_manifest(&manifest)?;
-        return Ok(manifest);
-    }
-
-    let projects_content = fs::read_to_string(projects_path())?;
-    let workspaces_content = fs::read_to_string(workspaces_path())?;
-
-    let legacy_projects: LegacyProjectsData = serde_json::from_str(&projects_content)?;
-    let legacy_workspaces: LegacyWorkspacesData = serde_json::from_str(&workspaces_content)?;
-
-    let mut manifest = Manifest {
-        version: 2,
-        workspaces: legacy_workspaces
-            .workspaces
-            .iter()
-            .map(|ws| {
-                let root = if ws.is_system() {
-                    None
-                } else {
-                    Some(collapse_path(
-                        &expand_path(&config.base_root).join(&ws.name),
-                    ))
-                };
-                Workspace {
-                    name: ws.name.clone(),
-                    root,
-                    created_at: ws.created_at,
-                    git: ws.git.clone(),
-                }
-            })
-            .collect(),
-        projects: Vec::new(),
-    };
-
-    for legacy_project in legacy_projects.projects {
-        let workspace_name = legacy_workspaces
-            .workspaces
-            .iter()
-            .find(|ws| ws.projects.iter().any(|name| name == &legacy_project.name))
-            .map(|ws| ws.name.clone())
-            .unwrap_or_else(|| "default".to_string());
-
-        let workspace_root = manifest
-            .workspaces
-            .iter()
-            .find(|ws| ws.name == workspace_name)
-            .and_then(|ws| ws.root.as_deref())
-            .map(expand_path)
-            .unwrap_or_else(|| expand_path(&config.base_root).join(&workspace_name));
-
-        let project_path = expand_path(&legacy_project.path);
-        let dir = relative_or_basename(&workspace_root, &project_path)?;
-        let repo_slug = legacy_project
-            .remote
-            .as_deref()
-            .and_then(crate::git::repo_slug_from_remote)
-            .unwrap_or_else(|| {
-                project_path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(&legacy_project.name)
-                    .to_string()
-            });
-
-        manifest.projects.push(Project {
-            name: legacy_project.name,
-            workspace: workspace_name,
-            repo_slug,
-            dir,
-            remote: legacy_project.remote,
-            tags: legacy_project.tags,
-            note: legacy_project.note,
-            added_at: legacy_project.added_at,
-            last_accessed: legacy_project.last_accessed,
-            access_count: legacy_project.access_count,
-            proj: None,
-            repo_spec: None,
-        });
-    }
-
-    if !manifest.workspaces.iter().any(|ws| ws.name == ".trash") {
-        manifest
-            .workspaces
-            .push(Workspace::new_system(".trash".to_string(), None));
-    }
-    if !manifest.workspaces.iter().any(|ws| ws.name == "default") {
-        manifest
-            .workspaces
-            .push(Workspace::new("default".to_string(), None));
-    }
-
-    save_manifest(&manifest)?;
-    Ok(manifest)
-}
-
-fn relative_or_basename(root: &Path, project_path: &Path) -> Result<String> {
-    if let Ok(relative) = project_path.strip_prefix(root) {
-        return Ok(relative.display().to_string());
-    }
-
-    let name = project_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow::anyhow!("Could not determine project directory name"))?;
-    Ok(name.to_string())
-}
-
-trait LegacySystem {
-    fn is_system(&self) -> bool;
-}
-
-impl LegacySystem for crate::models::LegacyWorkspace {
-    fn is_system(&self) -> bool {
-        self.name.starts_with('.')
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_manifest_shape_accepts_v4_manifest() {
+        let raw = serde_json::json!({
+            "version": MANIFEST_VERSION,
+            "workspaces": [
+                { "name": "default", "created_at": "2026-01-01T00:00:00Z" }
+            ],
+            "projects": [
+                {
+                    "name": "web",
+                    "workspace": "default",
+                    "dir": "web",
+                    "repo_slug": "web",
+                    "added_at": "2026-01-01T00:00:00Z",
+                    "last_accessed": "2026-01-01T00:00:00Z"
+                }
+            ]
+        });
+        validate_manifest_shape(&raw).expect("v4 manifest should validate");
+    }
+
+    #[test]
+    fn validate_manifest_shape_rejects_v3_manifest() {
+        let raw = serde_json::json!({ "version": 3, "workspaces": [], "projects": [] });
+        let err = validate_manifest_shape(&raw).unwrap_err();
+        assert!(
+            err.to_string().contains("v4"),
+            "error should mention v4: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_manifest_shape_rejects_workspace_root_override() {
+        let raw = serde_json::json!({
+            "version": MANIFEST_VERSION,
+            "workspaces": [
+                {
+                    "name": "acme",
+                    "root": "/somewhere/else",
+                    "created_at": "2026-01-01T00:00:00Z"
+                }
+            ],
+            "projects": []
+        });
+        let err = validate_manifest_shape(&raw).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("acme"), "error should name workspace: {msg}");
+        assert!(msg.contains("root"), "error should name field: {msg}");
+    }
+
+    #[test]
+    fn validate_manifest_shape_rejects_nested_project_dir() {
+        let raw = serde_json::json!({
+            "version": MANIFEST_VERSION,
+            "workspaces": [
+                { "name": "default", "created_at": "2026-01-01T00:00:00Z" }
+            ],
+            "projects": [
+                {
+                    "name": "bad",
+                    "workspace": "default",
+                    "dir": "web/frontend",
+                    "repo_slug": "bad",
+                    "added_at": "2026-01-01T00:00:00Z",
+                    "last_accessed": "2026-01-01T00:00:00Z"
+                }
+            ]
+        });
+        let err = validate_manifest_shape(&raw).unwrap_err();
+        assert!(
+            err.to_string().contains("bad"),
+            "error should name the project"
+        );
+    }
+
+    #[test]
+    fn validate_manifest_shape_allows_missing_project_dir_on_disk() {
+        // The validator is shape-only. It never inspects the filesystem.
+        // A manifest pointing at a non-existent directory must still validate
+        // so that other commands can continue to work (D8).
+        let raw = serde_json::json!({
+            "version": MANIFEST_VERSION,
+            "workspaces": [
+                { "name": "default", "created_at": "2026-01-01T00:00:00Z" }
+            ],
+            "projects": [
+                {
+                    "name": "ghost",
+                    "workspace": "default",
+                    "dir": "ghost",
+                    "repo_slug": "ghost",
+                    "added_at": "2026-01-01T00:00:00Z",
+                    "last_accessed": "2026-01-01T00:00:00Z"
+                }
+            ]
+        });
+        validate_manifest_shape(&raw).expect("missing dir must not break loading");
+    }
 
     #[test]
     fn migrate_v1_drops_shared_kinds_and_injects_shared_defaults() {

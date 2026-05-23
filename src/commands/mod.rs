@@ -7,7 +7,6 @@ pub mod init;
 pub mod list;
 #[cfg(unix)]
 pub mod logs;
-pub mod manifest;
 #[cfg(unix)]
 pub mod orchestrator;
 pub mod path;

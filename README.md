@@ -1,18 +1,23 @@
 # PM - Portable Project Manager CLI
 
-`pm` is a Git project directory manager built around portable workspace manifests.
-Instead of storing absolute project paths as the source of truth, PM stores:
+`pm` is a Git project directory manager built around a portable workspace manifest
+with a **strict path convention** (v4): every project lives at a deterministic
+path derived from its workspace and name. The manifest declares *what* PM
+manages; the filesystem reflects *where* it lives, computed mechanically.
 
-- workspace roots
-- project relative directories
-- Git remotes
+PM stores:
 
-That makes it possible to move your PM config between VMs and restore the same workspace layout with `pm sync`.
+- a single configurable `base_root`
+- workspace and project **names**
+- Git remotes and metadata
+
+That makes it possible to move your PM config between machines and restore the
+same workspace layout with `pm sync`.
 
 ## Features
 
 - **Portable manifest** - Track projects in `manifest.json`
-- **Workspace roots** - Every workspace can own a predictable root directory
+- **Strict path convention** - Every project lives at `base_root/<workspace>/<project>`
 - **Lazy restore** - Missing projects can be restored on `pm sw <project>`
 - **Bulk restore** - `pm sync` restores missing repositories in parallel
 - **Git-aware checks** - Detect missing repos, remote mismatches, and path conflicts
@@ -58,11 +63,13 @@ cp plugins/commands/skills/main.py ~/.config/pm/plugins/commands/skills/
 # Initialize PM
 pm init
 
-# Create a workspace with an explicit root
-pm ws new work --root ~/work
+# Create a workspace (lives at base_root/work)
+pm ws new work
 
-# Add an existing repo under that workspace root
-pm add ~/work/company-api
+# Add a project — by URL (cloned into place) or by path (moved into place)
+pm add https://github.com/acme/company-api.git
+# or:
+pm add ~/code/company-api          # → moved to base_root/work/company-api
 
 # List projects
 pm ls
@@ -84,18 +91,26 @@ PM stores two files:
 | `manifest.json` | Portable workspace/project definition |
 | `history.json` | Removal history snapshots for later restore workflows |
 
-`manifest.json` is the portable source of truth. Each project stores:
+`manifest.json` is the portable source of truth for **what** PM manages
+(membership and metadata). The filesystem is the authority for **where** files
+physically live; PM's reconciler keeps the two aligned (`pm sync`).
 
-- `workspace`
-- `dir` relative to the workspace root
+Each project stores:
+
+- `workspace` — the workspace name
+- `dir` — a single safe directory component (no `/`, `\`, `..`, etc.)
 - `repo_slug`
 - `remote` when available
 
-The effective local path is always computed as:
+The effective local path is computed deterministically as:
 
 ```text
-workspace.root + project.dir
+<base_root>/<workspace>/<project.dir>
 ```
+
+The default `base_root` is `~/projects`. It is the *only* configurable axis of
+the path layout — workspaces no longer carry their own root override, and
+`project.dir` cannot contain nested paths.
 
 ## Shell Integration
 
@@ -120,7 +135,7 @@ pm() {
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `pm init` | | Initialize PM configuration |
-| `pm add <path>` | | Register a project under the current workspace root |
+| `pm add <url\|path>` | | Add a project: clone a git URL into place, or move a local repo into `base_root/<workspace>/<name>` |
 | `pm list` | `ls` | List projects |
 | `pm switch <project>` | `sw` | Switch to project directory, optionally restoring it |
 | `pm path <project>` | | Print project path without restoring |
@@ -129,7 +144,6 @@ pm() {
 | `pm use <workspace>` | | Switch workspace |
 | `pm workspace` | `ws` | Workspace management |
 | `pm sync [workspace]` | | Restore missing repositories in parallel |
-| `pm manifest migrate` | | Migrate legacy `projects.json`/`workspaces.json` |
 | `pm repo` | | Track project repo spec/template versions |
 | `pm ports` | | Manage local project port allocations |
 | `pm run` | | Run commands with port environment overrides |
@@ -469,32 +483,32 @@ The marker text is a stable contract — changing it requires a future BREAKING 
 
 ## Workspaces
 
-Create and manage workspace roots:
+Workspace directories are derived from their name; PM creates `base_root/<name>/`
+automatically and projects live one level deeper.
 
 ```bash
-# Create a workspace with explicit root
-pm ws new work --root ~/work
+# Create a workspace (directory: base_root/work)
+pm ws new work
 
 # Switch current workspace
 pm use work
 
-# Change the root later
-pm ws root set work ~/src/work
-
-# Move a project between workspaces
+# Move a project between workspaces (relocates files + updates manifest)
 pm ws mv company-api personal
 
 # List workspaces
 pm ws list
 ```
 
-By default, if a workspace has no explicit `root`, PM resolves it as:
+A workspace's path is always:
 
 ```text
-config.base_root/<workspace>
+<base_root>/<workspace_name>
 ```
 
-The default `base_root` is `~/`.
+The default `base_root` is `~/projects`; change it in `config.json`. There is
+no per-workspace root override — that was removed in v4 to make manifests
+portable and paths deterministic.
 
 ## Restore Workflow
 
@@ -592,15 +606,16 @@ Configuration is stored in:
 | `pm` | Default location | Production |
 | `pmd` | `pm-dev/` subdirectory | Development/Testing |
 
-## Legacy Migration
+## v4 Compatibility
 
-If you already have `projects.json` and `workspaces.json`, PM will migrate them into `manifest.json` on load.
+Manifest schema v4 introduced the strict path convention and intentionally
+breaks compatibility with earlier versions. PM does **not** ship an automatic
+migration: loading a `manifest.json` with `version < 4` (or one that uses a
+per-workspace `root` field or a nested `project.dir`) fails with a clear
+incompatibility error. Recreate your workspaces under the new convention.
 
-You can also run migration explicitly:
-
-```bash
-pm manifest migrate
-```
+This is a one-time break tied to the v0.x development phase; future schema
+bumps will ship migrations.
 
 ## Building
 

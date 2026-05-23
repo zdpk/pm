@@ -38,10 +38,22 @@ pub enum PmError {
     #[error("Invalid workspace name '{0}': must match [a-zA-Z][a-zA-Z0-9_-]*")]
     InvalidWorkspaceName(String),
 
+    #[error("Invalid project dir '{dir}': {rule}")]
+    InvalidProjectDir { dir: String, rule: &'static str },
+
+    #[error("Manifest version {0} is not compatible with this build (requires v4). pm no longer supports automatic migration; recreate workspaces under the new path convention.")]
+    ManifestVersionTooOld(u32),
+
+    #[error("Manifest uses unsupported field '{field}' on workspace '{workspace}'. The strict path convention does not allow per-workspace root overrides.")]
+    UnsupportedManifestField {
+        workspace: String,
+        field: &'static str,
+    },
+
     #[error("No remote URL saved for '{0}'")]
     NoRemoteUrl(String),
 
-    #[error("Project '{0}' is registered but missing locally")]
+    #[error("Project '{0}' is registered but missing on disk. Run 'pm sync' to restore it, or 'pm rm {0}' to drop it from the manifest.")]
     ProjectMissing(String),
 
     #[error(

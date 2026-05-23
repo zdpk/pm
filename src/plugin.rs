@@ -1,4 +1,4 @@
-use crate::config::{config_dir, projects_path, workspaces_path};
+use crate::config::config_dir;
 use crate::state::{detect_current_project, load_state, project_path};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -143,8 +143,6 @@ pub fn run_plugin(plugin: &Plugin, args: &[String]) -> Result<()> {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .env("PM_CONFIG_DIR", config_dir())
-        .env("PM_PROJECTS_FILE", projects_path())
-        .env("PM_WORKSPACES_FILE", workspaces_path())
         .env("PM_MANIFEST_FILE", crate::config::manifest_path())
         .env("PM_PLUGIN_DIR", &plugin.dir);
 
