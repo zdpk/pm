@@ -100,7 +100,7 @@ fn default_git_host() -> String {
 }
 
 fn default_base_root() -> String {
-    "~/".to_string()
+    "~/projects".to_string()
 }
 
 fn default_workspace() -> String {
@@ -247,10 +247,10 @@ pub struct Manifest {
 impl Default for Manifest {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 4,
             workspaces: vec![
-                Workspace::new("default".to_string(), None),
-                Workspace::new_system(".trash".to_string(), None),
+                Workspace::new("default".to_string()),
+                Workspace::new_system(".trash".to_string()),
             ],
             projects: Vec::new(),
         }
@@ -261,9 +261,6 @@ impl Default for Manifest {
 pub struct Workspace {
     pub name: String,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub root: Option<String>,
-
     pub created_at: DateTime<Utc>,
 
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -271,19 +268,17 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(name: String, root: Option<String>) -> Self {
+    pub fn new(name: String) -> Self {
         Self {
             name,
-            root,
             created_at: Utc::now(),
             git: HashMap::new(),
         }
     }
 
-    pub fn new_system(name: String, root: Option<String>) -> Self {
+    pub fn new_system(name: String) -> Self {
         Self {
             name,
-            root,
             created_at: Utc::now(),
             git: HashMap::new(),
         }
@@ -493,49 +488,4 @@ impl Default for PortsData {
             projects: HashMap::new(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LegacyProjectsData {
-    pub version: u32,
-    pub projects: Vec<LegacyProject>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LegacyProject {
-    pub name: String,
-    pub path: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remote: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-
-    pub added_at: DateTime<Utc>,
-    pub last_accessed: DateTime<Utc>,
-
-    #[serde(default)]
-    pub access_count: u32,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LegacyWorkspacesData {
-    pub version: u32,
-    pub current: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_project: Option<String>,
-    pub workspaces: Vec<LegacyWorkspace>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LegacyWorkspace {
-    pub name: String,
-    pub projects: Vec<String>,
-    pub created_at: DateTime<Utc>,
-
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub git: HashMap<String, String>,
 }

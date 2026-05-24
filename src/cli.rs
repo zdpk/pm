@@ -131,10 +131,6 @@ pub enum Commands {
         jobs: usize,
     },
 
-    /// Manifest management
-    #[command(subcommand)]
-    Manifest(ManifestCommand),
-
     /// Repo spec version tracking
     #[command(subcommand)]
     Repo(RepoCommand),
@@ -386,10 +382,6 @@ pub enum WorkspaceCommand {
     New {
         /// Workspace name
         name: String,
-
-        /// Workspace root path
-        #[arg(long)]
-        root: Option<String>,
     },
 
     /// Remove a workspace
@@ -444,30 +436,6 @@ pub enum WorkspaceCommand {
         /// Workspace name
         workspace: String,
     },
-
-    /// Configure workspace root
-    Root {
-        #[command(subcommand)]
-        command: WorkspaceRootCommand,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum WorkspaceRootCommand {
-    /// Set workspace root
-    Set {
-        /// Workspace name
-        workspace: String,
-
-        /// Root path
-        path: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum ManifestCommand {
-    /// Migrate legacy projects/workspaces files into manifest.json
-    Migrate,
 }
 
 #[derive(Subcommand)]

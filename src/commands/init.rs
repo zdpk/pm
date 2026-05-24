@@ -1,6 +1,6 @@
 use crate::config::{
     config_dir, config_path, history_path, is_initialized, manifest_path, ports_path,
-    projects_path, repo_specs_dir, workspaces_path,
+    repo_specs_dir,
 };
 use crate::error::PmError;
 use crate::models::{Config, HistoryData, Manifest, PortsData, RepoSpec};
@@ -55,11 +55,6 @@ pub fn run(force: bool) -> Result<()> {
 
     ensure_repo_specs_dir()?;
     ensure_ports_file()?;
-
-    if force {
-        let _ = fs::remove_file(projects_path());
-        let _ = fs::remove_file(workspaces_path());
-    }
 
     println!("\n{}", "PM initialized successfully!".green().bold());
     Ok(())

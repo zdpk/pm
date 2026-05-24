@@ -14,6 +14,8 @@ mod routes;
 mod services;
 mod state;
 mod templates;
+#[cfg(test)]
+mod test_support;
 
 use anyhow::Result;
 use clap::{error::ErrorKind, Parser};
@@ -72,7 +74,6 @@ fn dispatch(cli: Cli) -> Result<()> {
             yes,
             jobs,
         } => commands::sync::run(workspace, yes, jobs),
-        Commands::Manifest(cmd) => commands::manifest::run(cmd),
         Commands::Repo(repo_cmd) => commands::repo::run(repo_cmd),
         Commands::Ports(ports_cmd) => commands::ports::run(ports_cmd),
         Commands::Run {

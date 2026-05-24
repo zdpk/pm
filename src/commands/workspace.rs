@@ -1,10 +1,10 @@
-use crate::cli::{WorkspaceCommand, WorkspaceRootCommand};
+use crate::cli::WorkspaceCommand;
 use crate::error::PmError;
 use crate::git::set_git_config;
 use crate::models::Workspace;
 use crate::state::{
-    find_project, find_workspace, find_workspace_mut, load_state, normalized_workspace_root,
-    project_path, save_state,
+    find_project, find_workspace, find_workspace_mut, load_state, project_path, save_state,
+    workspace_dir,
 };
 use anyhow::Result;
 use colored::Colorize;
@@ -15,7 +15,7 @@ use std::io::{self, Write};
 pub fn run(cmd: WorkspaceCommand) -> Result<()> {
     match cmd {
         WorkspaceCommand::List => list(),
-        WorkspaceCommand::New { name, root } => new(name, root),
+        WorkspaceCommand::New { name } => new(name),
         WorkspaceCommand::Remove {
             name,
             force,
@@ -33,13 +33,12 @@ pub fn run(cmd: WorkspaceCommand) -> Result<()> {
             unset,
         } => config(workspace, key, value, list, unset),
         WorkspaceCommand::ApplyGit { workspace } => apply_git(workspace),
-        WorkspaceCommand::Root { command } => root(command),
     }
 }
 
 fn list() -> Result<()> {
     let (config, manifest) = load_state()?;
-    println!("  {:<12} {:<8} {}", "NAME", "PROJECTS", "ROOT");
+    println!("  {:<12} {:<8} {}", "NAME", "PROJECTS", "PATH");
 
     for ws in &manifest.workspaces {
         if ws.is_system() {
@@ -56,16 +55,19 @@ fn list() -> Result<()> {
             .iter()
             .filter(|p| p.workspace == ws.name)
             .count();
-        let root = ws
-            .root
-            .clone()
-            .unwrap_or_else(|| format!("{}/{}", config.base_root, ws.name));
-        println!("{} {:<12} {:<8} {}", marker, ws.name, count, root.dimmed());
+        let path = workspace_dir(&config.base_root, &ws.name);
+        println!(
+            "{} {:<12} {:<8} {}",
+            marker,
+            ws.name,
+            count,
+            path.display().to_string().dimmed()
+        );
     }
     Ok(())
 }
 
-fn new(name: String, root: Option<String>) -> Result<()> {
+fn new(name: String) -> Result<()> {
     let (mut config, mut manifest) = load_state()?;
     let name_regex = Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]*$")?;
     if !name_regex.is_match(&name) {
@@ -75,16 +77,20 @@ fn new(name: String, root: Option<String>) -> Result<()> {
         return Err(PmError::WorkspaceExists(name).into());
     }
 
-    let root = match root {
-        Some(root) => Some(normalized_workspace_root(&root)?),
-        None => None,
-    };
+    // Create the workspace directory by convention.
+    let ws_path = workspace_dir(&config.base_root, &name);
+    fs::create_dir_all(&ws_path)?;
 
-    manifest.workspaces.push(Workspace::new(name.clone(), root));
+    manifest.workspaces.push(Workspace::new(name.clone()));
     config.current_workspace = name.clone();
     save_state(&config, &manifest)?;
 
-    println!("{} Created workspace '{}'", "✓".green(), name.cyan());
+    println!(
+        "{} Created workspace '{}' at {}",
+        "✓".green(),
+        name.cyan(),
+        ws_path.display().to_string().dimmed()
+    );
     println!("{} Switched to '{}'", "✓".green(), name.cyan());
     Ok(())
 }
@@ -168,13 +174,87 @@ fn move_projects(projects: Vec<String>, workspace: String) -> Result<()> {
     let (config, mut manifest) = load_state()?;
     let _ = find_workspace(&manifest, &workspace)?;
 
+    // Plan + validate all moves before applying any. Under the strict path
+    // convention, moving a project's workspace also moves its directory
+    // (D9). We compute every source/destination up front so a precondition
+    // failure aborts the whole batch with the manifest untouched.
+    struct Plan {
+        name: String,
+        src: std::path::PathBuf,
+        dst: std::path::PathBuf,
+    }
+
+    let mut plans: Vec<Plan> = Vec::with_capacity(projects.len());
+    let dst_ws_dir = workspace_dir(&config.base_root, &workspace);
+
     for project_name in &projects {
         let project = manifest
             .projects
-            .iter_mut()
-            .find(|project| project.name == *project_name)
+            .iter()
+            .find(|p| p.name == *project_name)
             .ok_or_else(|| PmError::ProjectNotFound(project_name.clone()))?;
-        project.workspace = workspace.clone();
+
+        if project.workspace == workspace {
+            return Err(anyhow::anyhow!(
+                "Project '{}' is already in workspace '{}'",
+                project_name,
+                workspace
+            ));
+        }
+
+        let src = project_path(&config, &manifest, project)?;
+        let dst = dst_ws_dir.join(&project.dir);
+
+        if dst.exists() {
+            return Err(anyhow::anyhow!(
+                "Destination '{}' already exists; refusing to move '{}'",
+                dst.display(),
+                project_name
+            ));
+        }
+
+        plans.push(Plan {
+            name: project_name.clone(),
+            src,
+            dst,
+        });
+    }
+
+    fs::create_dir_all(&dst_ws_dir)?;
+
+    // Apply: physically move first, then update manifest. On any move
+    // failure, roll back already-moved directories so the on-disk state
+    // matches the unchanged manifest.
+    let mut moved: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+    for plan in &plans {
+        if plan.src.exists() {
+            if let Err(e) = fs::rename(&plan.src, &plan.dst) {
+                // Roll back.
+                for (src, dst) in moved.iter().rev() {
+                    let _ = fs::rename(dst, src);
+                }
+                return Err(anyhow::anyhow!(
+                    "Failed to move '{}' from {} to {}: {}. Manifest left unchanged.",
+                    plan.name,
+                    plan.src.display(),
+                    plan.dst.display(),
+                    e
+                ));
+            }
+            moved.push((plan.src.clone(), plan.dst.clone()));
+        }
+        // If src is missing on disk, we still update the manifest below; the
+        // user can `pm sync` to materialize it under the new convention path.
+    }
+
+    for project_name in &projects {
+        if let Some(project) = manifest
+            .projects
+            .iter_mut()
+            .find(|p| p.name == *project_name)
+        {
+            project.workspace = workspace.clone();
+        }
     }
 
     save_state(&config, &manifest)?;
@@ -281,21 +361,90 @@ fn apply_git(workspace: String) -> Result<()> {
     Ok(())
 }
 
-fn root(command: WorkspaceRootCommand) -> Result<()> {
-    match command {
-        WorkspaceRootCommand::Set { workspace, path } => set_root(workspace, path),
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::load_manifest;
+    use crate::models::Project;
+    use crate::state::save_state;
+    use crate::test_support::TestEnv;
 
-fn set_root(workspace: String, path: String) -> Result<()> {
-    let (config, mut manifest) = load_state()?;
-    let ws = find_workspace_mut(&mut manifest, &workspace)?;
-    ws.root = Some(normalized_workspace_root(&path)?);
-    save_state(&config, &manifest)?;
-    println!(
-        "{} Set root for workspace '{}'",
-        "✓".green(),
-        workspace.cyan()
-    );
-    Ok(())
+    /// Seed a workspace + project into the test env: create the directory,
+    /// add the workspace + project to the manifest, save.
+    fn seed_project(env: &TestEnv, workspace: &str, project: &str) {
+        let (config, mut manifest) = load_state().expect("load state");
+        if !manifest.workspaces.iter().any(|w| w.name == workspace) {
+            manifest
+                .workspaces
+                .push(Workspace::new(workspace.to_string()));
+        }
+        std::fs::create_dir_all(env.project_dir(workspace, project)).expect("create project dir");
+        std::fs::write(env.project_dir(workspace, project).join("README.md"), "x").unwrap();
+
+        let proj = Project::new(
+            project.to_string(),
+            workspace.to_string(),
+            project.to_string(),
+            project.to_string(),
+        );
+        manifest.projects.push(proj);
+        save_state(&config, &manifest).expect("save state");
+    }
+
+    #[test]
+    fn mv_relocates_directory_and_updates_manifest() {
+        let env = TestEnv::new();
+        // Ensure target workspace exists and on disk.
+        std::fs::create_dir_all(env.workspace_dir("target")).unwrap();
+        let (config, mut manifest) = load_state().unwrap();
+        manifest
+            .workspaces
+            .push(Workspace::new("target".to_string()));
+        save_state(&config, &manifest).unwrap();
+
+        seed_project(&env, "default", "web");
+
+        move_projects(vec!["web".to_string()], "target".to_string()).expect("move should succeed");
+
+        assert!(env.project_dir("target", "web").exists());
+        assert!(!env.project_dir("default", "web").exists());
+
+        let manifest = load_manifest().unwrap();
+        let project = manifest.projects.iter().find(|p| p.name == "web").unwrap();
+        assert_eq!(project.workspace, "target");
+    }
+
+    #[test]
+    fn mv_aborts_when_destination_exists() {
+        let env = TestEnv::new();
+        // Pre-populate workspace + colliding destination.
+        std::fs::create_dir_all(env.workspace_dir("target")).unwrap();
+        let (config, mut manifest) = load_state().unwrap();
+        manifest
+            .workspaces
+            .push(Workspace::new("target".to_string()));
+        save_state(&config, &manifest).unwrap();
+
+        seed_project(&env, "default", "web");
+        std::fs::create_dir_all(env.project_dir("target", "web")).unwrap();
+
+        let err = move_projects(vec!["web".to_string()], "target".to_string()).unwrap_err();
+        assert!(
+            err.to_string().contains("already exists"),
+            "error should mention existing destination: {err}"
+        );
+
+        // Nothing moved on disk; manifest still records 'default'.
+        assert!(env.project_dir("default", "web").exists());
+        let manifest = load_manifest().unwrap();
+        assert_eq!(
+            manifest
+                .projects
+                .iter()
+                .find(|p| p.name == "web")
+                .unwrap()
+                .workspace,
+            "default"
+        );
+    }
 }
