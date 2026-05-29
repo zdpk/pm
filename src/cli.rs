@@ -117,18 +117,38 @@ pub enum Commands {
     #[command(visible_alias = "ws", subcommand)]
     Workspace(WorkspaceCommand),
 
-    /// Synchronize missing repositories from manifest
+    /// Synchronize the manifest with the filesystem
+    ///
+    /// Default (no flags): restore missing projects that have a remote,
+    /// matching the v0.5.0 behavior.
+    ///
+    /// `--adopt` and `--prune` opt in to bidirectional reconcile:
+    /// adopt untracked git directories at the convention path, and/or
+    /// prune manifest entries whose directory is missing on disk. Both
+    /// require interactive confirmation per item unless `--yes`.
     Sync {
         /// Sync a single workspace
         workspace: Option<String>,
 
-        /// Skip confirmation prompt
+        /// Skip confirmation prompts (also required for non-interactive runs)
         #[arg(short = 'y', long)]
         yes: bool,
 
-        /// Parallel jobs
+        /// Parallel jobs for restore-clone
         #[arg(long, default_value_t = 4)]
         jobs: usize,
+
+        /// Register untracked git directories under base_root
+        #[arg(long)]
+        adopt: bool,
+
+        /// Remove manifest entries whose directory is missing on disk
+        #[arg(long)]
+        prune: bool,
+
+        /// Print the plan and make no changes
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Repo spec version tracking
