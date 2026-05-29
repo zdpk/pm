@@ -9,6 +9,7 @@ mod path;
 mod log_rotation;
 mod plugin;
 mod project;
+mod reconcile;
 mod restore;
 mod routes;
 mod services;
@@ -73,7 +74,10 @@ fn dispatch(cli: Cli) -> Result<()> {
             workspace,
             yes,
             jobs,
-        } => commands::sync::run(workspace, yes, jobs),
+            adopt,
+            prune,
+            dry_run,
+        } => commands::sync::run(workspace, yes, jobs, adopt, prune, dry_run),
         Commands::Repo(repo_cmd) => commands::repo::run(repo_cmd),
         Commands::Ports(ports_cmd) => commands::ports::run(ports_cmd),
         Commands::Run {

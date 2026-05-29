@@ -143,11 +143,11 @@ pm() {
 | `pm history` | | Show recent removal history |
 | `pm use <workspace>` | | Switch workspace |
 | `pm workspace` | `ws` | Workspace management |
-| `pm sync [workspace]` | | Restore missing repositories in parallel |
+| `pm sync [workspace]` | | Reconcile manifest vs. filesystem (`--adopt`, `--prune`, `--dry-run`) |
 | `pm repo` | | Track project repo spec/template versions |
 | `pm ports` | | Manage local project port allocations |
 | `pm run` | | Run commands with port environment overrides |
-| `pm check` | | Validate project health |
+| `pm check` | | Diagnose drift between manifest and filesystem (read-only) |
 | `pm plugin` | | List, enable, or disable command plugins |
 | `pm completion <shell>` | | Generate shell completions |
 
@@ -566,6 +566,32 @@ pm history --limit 50
 pm sync -y
 pm sync work -y --jobs 8
 ```
+
+### Drift reconciliation
+
+The manifest is `pm`'s source of truth for **what** is managed; the filesystem
+is the truth for **what physically exists**. `pm` surfaces drift between the
+two rather than silently reconciling. Two commands work together:
+
+```bash
+# Read-only diagnostic. Lists missing entries, conflicts, and untracked dirs
+# under base_root that are not in the manifest. Makes no changes.
+pm check
+
+# Mutating reconciler. Default behavior (no flags) is unchanged: restore
+# missing entries that have a remote. Opt-in flags add the other two
+# directions:
+pm sync --adopt           # register untracked git dirs (per-item confirm)
+pm sync --prune           # drop manifest entries whose dir is missing
+                          # (writes history.json snapshot)
+pm sync --adopt --prune --dry-run   # preview the plan without applying
+pm sync --adopt --prune --yes       # non-interactive; required outside a TTY
+```
+
+Adopt skips entries whose name fails the project-name regex, whose workspace
+is not declared in the manifest (run `pm ws new <name>` first), or whose name
+collides with an existing project. Prune appends each removed project to
+`history.json` as `Unregistered` so `pm history` can surface it.
 
 ## Listing and Health Checks
 

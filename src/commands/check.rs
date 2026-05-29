@@ -1,17 +1,43 @@
-use crate::git::{is_git_repo, remote_matches};
-use crate::state::{load_state, project_path, project_path_display};
+use crate::reconcile::{classify, scan_base_root, ConflictKind};
+use crate::state::{load_state, project_path_display};
 use anyhow::Result;
 use colored::Colorize;
 
+/// Read-only diagnostic for drift between the manifest (desired state) and
+/// the filesystem (observed state).
+///
+/// Reports four classes (see `reconcile::ReconcileReport`):
+/// - **orphans** — manifest entries whose directory is missing on disk
+///   (`missing-restorable` if a remote is recorded, else `missing-unrestorable`)
+/// - **conflicts** — manifest entries whose on-disk state disagrees
+///   (`path-conflict`, `remote-mismatch`)
+/// - **untracked git** — directories at the convention path with no manifest entry
+/// - **untracked non-git** — informational; never adopt-eligible
+///
+/// Makes zero filesystem or manifest changes — mutating actions belong on `pm sync`.
 pub fn run() -> Result<()> {
     let (config, manifest) = load_state()?;
+    let disk = scan_base_root(&config);
+    let report = classify(&config, &manifest, &disk);
+
     let mut issues = 0;
 
-    for project in &manifest.projects {
-        let path = project_path(&config, &manifest, project)?;
-        let path_display = project_path_display(&config, &manifest, project)?;
+    // Healthy + per-project diagnostics. We loop the manifest in declared
+    // order so the output stays stable; classify() told us which entries
+    // need attention.
+    let orphan_names: std::collections::HashSet<&str> =
+        report.orphans.iter().map(|p| p.name.as_str()).collect();
+    let conflict_names: std::collections::HashMap<&str, ConflictKind> = report
+        .conflicts
+        .iter()
+        .map(|c| (c.project.name.as_str(), c.kind))
+        .collect();
 
-        if !path.exists() {
+    for project in &manifest.projects {
+        let path_display = project_path_display(&config, &manifest, project)?;
+        let name = project.name.as_str();
+
+        if orphan_names.contains(name) {
             if project.remote.is_some() {
                 println!(
                     "{} {:<16} {} ({})",
@@ -33,33 +59,55 @@ pub fn run() -> Result<()> {
             continue;
         }
 
-        if !is_git_repo(&path.display().to_string()) {
+        if let Some(kind) = conflict_names.get(name).copied() {
+            let label = match kind {
+                ConflictKind::NonGitAtExpectedPath => "path-conflict",
+                ConflictKind::RemoteMismatch => "remote-mismatch",
+            };
             println!(
                 "{} {:<16} {} ({})",
                 "✗".red(),
                 project.name,
                 path_display,
-                "path-conflict".red()
+                label.red()
             );
             issues += 1;
             continue;
         }
 
-        if let Some(remote) = &project.remote {
-            if !remote_matches(&path, remote) {
-                println!(
-                    "{} {:<16} {} ({})",
-                    "✗".red(),
-                    project.name,
-                    path_display,
-                    "remote-mismatch".red()
-                );
-                issues += 1;
-                continue;
-            }
-        }
-
+        // Project may live in a system workspace (e.g. .trash) we don't scan;
+        // classify intentionally doesn't surface those as orphans. Mark them OK.
         println!("{} {:<16} {}", "✓".green(), project.name, path_display);
+    }
+
+    if !report.untracked_git.is_empty() {
+        println!("\nUntracked git directories (not registered in manifest):");
+        for entry in &report.untracked_git {
+            println!(
+                "{} {}/{:<16} {} ({})",
+                "?".cyan(),
+                entry.workspace,
+                entry.dir,
+                entry.path.display(),
+                "untracked".cyan()
+            );
+            issues += 1;
+        }
+        println!("\n  Run `pm sync --adopt` to register them, or ignore.");
+    }
+
+    if !report.untracked_non_git.is_empty() {
+        println!("\nUntracked non-git directories (informational):");
+        for entry in &report.untracked_non_git {
+            println!(
+                "{} {}/{:<16} {} ({})",
+                "·".dimmed(),
+                entry.workspace,
+                entry.dir,
+                entry.path.display(),
+                "untracked-non-git".dimmed()
+            );
+        }
     }
 
     if issues > 0 {
