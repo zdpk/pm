@@ -4,6 +4,7 @@ pub mod completion;
 pub mod db;
 pub mod history;
 pub mod init;
+pub mod link;
 pub mod list;
 #[cfg(unix)]
 pub mod logs;

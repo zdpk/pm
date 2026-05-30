@@ -51,6 +51,13 @@ fn dispatch(cli: Cli) -> Result<()> {
             note,
             force,
         } => commands::add::run(path, name, tags, note, force),
+        Commands::Link {
+            path,
+            name,
+            workspace,
+            tags,
+            note,
+        } => commands::link::run(path, name, workspace, tags, note),
         Commands::List {
             all,
             tags,

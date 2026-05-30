@@ -22,7 +22,8 @@ use chrono::Utc;
 use regex::Regex;
 use std::path::PathBuf;
 
-/// A directory observed under `<base_root>/<workspace>/<dir>`.
+/// A directory (or project-level symlink) observed under
+/// `<base_root>/<workspace>/<dir>`.
 #[derive(Debug, Clone)]
 pub struct DiskEntry {
     pub workspace: String,
@@ -30,6 +31,12 @@ pub struct DiskEntry {
     pub path: PathBuf,
     pub is_git: bool,
     pub remote: Option<String>,
+    /// When the convention path is a symlink, the canonicalized target it
+    /// resolves to (`None` if the target is missing/dangling). `None` together
+    /// with `is_symlink == false` means a plain directory.
+    pub link_target: Option<PathBuf>,
+    /// Whether the convention-path entry itself is a symlink node.
+    pub is_symlink: bool,
 }
 
 /// A manifest project whose physical directory exists but disagrees with the
@@ -48,6 +55,17 @@ pub enum ConflictKind {
     /// The convention path is a git repo but `origin` doesn't match the
     /// manifest's recorded remote.
     RemoteMismatch,
+    /// A linked project whose symlink is missing or whose target no longer
+    /// exists (also the "unavailable on this machine" case).
+    BrokenLink,
+    /// A linked project whose symlink resolves to a path other than the
+    /// recorded target.
+    LinkTargetDrift,
+    /// A linked project whose convention path is now a real directory instead
+    /// of a symlink.
+    LinkReplacedByDir,
+    /// A managed (non-linked) project whose convention path is a symlink.
+    UnexpectedSymlink,
 }
 
 /// Classification of drift between the manifest and the disk scan.
@@ -64,10 +82,12 @@ pub struct ReconcileReport<'a> {
     pub conflicts: Vec<ConflictEntry<'a>>,
 }
 
-/// Walk two levels of `base_root` and return every candidate project
-/// directory. Skips symlinks (avoid recursion and cross-fs surprises), skips
-/// non-directories, and skips system workspaces (`.`-prefix) — their
-/// contents are tracked-but-trashed, not "untracked".
+/// Walk two levels of `base_root` and return every candidate project entry.
+/// Workspace-level (first-level) symlinks are skipped (avoid recursion and
+/// cross-fs surprises); project-level (second-level) symlinks ARE recorded so
+/// linked projects can be reconciled. Non-directory files and system
+/// workspaces (`.`-prefix) — whose contents are tracked-but-trashed, not
+/// "untracked" — are skipped.
 pub fn scan_base_root(config: &Config) -> Vec<DiskEntry> {
     let base = expand_path(&config.base_root);
     let mut entries = Vec::new();
@@ -98,10 +118,14 @@ pub fn scan_base_root(config: &Config) -> Vec<DiskEntry> {
         };
 
         for project_entry in project_iter.flatten() {
+            // `DirEntry::metadata` does not traverse symlinks, so this detects
+            // the link node itself rather than its target.
             let Ok(pe_meta) = project_entry.metadata() else {
                 continue;
             };
-            if pe_meta.file_type().is_symlink() || !pe_meta.is_dir() {
+            let is_symlink = pe_meta.file_type().is_symlink();
+            // Plain files (neither a directory nor a symlink) are not projects.
+            if !is_symlink && !pe_meta.is_dir() {
                 continue;
             }
             let Some(dir_name) = project_entry.file_name().to_str().map(str::to_owned) else {
@@ -109,12 +133,30 @@ pub fn scan_base_root(config: &Config) -> Vec<DiskEntry> {
             };
 
             let path = project_entry.path();
-            let path_str = path.display().to_string();
-            let is_git = is_git_repo(&path_str);
-            let remote = if is_git {
-                get_remote_url(&path_str)
+
+            // Resolve a project-level symlink to its canonical target. A
+            // dangling link resolves to `None`. Git-ness/remote are computed
+            // from the resolved location (the target for a symlink, the
+            // directory itself otherwise).
+            let (link_target, resolved) = if is_symlink {
+                match std::fs::canonicalize(&path) {
+                    Ok(target) => (Some(target.clone()), Some(target)),
+                    Err(_) => (None, None),
+                }
             } else {
-                None
+                (None, Some(path.clone()))
+            };
+
+            let (is_git, remote) = match resolved {
+                Some(ref real) if real.is_dir() => {
+                    let real_str = real.display().to_string();
+                    if is_git_repo(&real_str) {
+                        (true, get_remote_url(&real_str))
+                    } else {
+                        (false, None)
+                    }
+                }
+                _ => (false, None),
             };
 
             entries.push(DiskEntry {
@@ -123,6 +165,8 @@ pub fn scan_base_root(config: &Config) -> Vec<DiskEntry> {
                 path,
                 is_git,
                 remote,
+                link_target,
+                is_symlink,
             });
         }
     }
@@ -147,9 +191,18 @@ pub fn classify<'a>(
         .map(|d| ((d.workspace.as_str(), d.dir.as_str()), d))
         .collect();
 
-    // Manifest-driven pass: orphans + conflicts.
+    // Manifest-driven pass: orphans + conflicts. Linked projects (those with
+    // a recorded link target) follow a separate set of rules — they are never
+    // orphans.
     for project in &manifest.projects {
-        match disk_index.get(&(project.workspace.as_str(), project.dir.as_str())) {
+        let observed = disk_index.get(&(project.workspace.as_str(), project.dir.as_str()));
+
+        if let Some(target) = project.link.as_deref() {
+            classify_linked(&mut report, config, project, observed.copied(), target);
+            continue;
+        }
+
+        match observed {
             None => {
                 // No disk entry at the convention path. Either the dir was
                 // deleted out-of-band, or the project is in a system
@@ -161,7 +214,15 @@ pub fn classify<'a>(
                 }
             }
             Some(entry) => {
-                if !entry.is_git {
+                if entry.is_symlink {
+                    // A managed project should be a real directory; a symlink
+                    // here is unexpected drift.
+                    report.conflicts.push(ConflictEntry {
+                        project,
+                        path: entry.path.clone(),
+                        kind: ConflictKind::UnexpectedSymlink,
+                    });
+                } else if !entry.is_git {
                     report.conflicts.push(ConflictEntry {
                         project,
                         path: entry.path.clone(),
@@ -191,6 +252,12 @@ pub fn classify<'a>(
         if manifest_index.contains(&(entry.workspace.as_str(), entry.dir.as_str())) {
             continue;
         }
+        // An untracked symlink has no manifest entry — pm didn't create it and
+        // it is never adopt-eligible. Leave it alone rather than treating it as
+        // an adoptable git directory.
+        if entry.is_symlink {
+            continue;
+        }
         if entry.is_git {
             report.untracked_git.push(entry.clone());
         } else {
@@ -198,8 +265,53 @@ pub fn classify<'a>(
         }
     }
 
-    let _ = config; // reserved for future heuristics (e.g. base_root checks)
     report
+}
+
+/// Classify a single linked project (one with a recorded link target) against
+/// its observed convention-path entry. A linked project is never an orphan;
+/// its outcomes are healthy (no report) or one of the link-specific conflicts.
+fn classify_linked<'a>(
+    report: &mut ReconcileReport<'a>,
+    config: &Config,
+    project: &'a Project,
+    observed: Option<&DiskEntry>,
+    target: &str,
+) {
+    let push = |report: &mut ReconcileReport<'a>, path: PathBuf, kind: ConflictKind| {
+        report.conflicts.push(ConflictEntry {
+            project,
+            path,
+            kind,
+        });
+    };
+
+    match observed {
+        // Nothing at the convention path: the symlink is gone, or the target
+        // (and link) simply don't exist on this machine. Either way it's a
+        // broken link, never an orphan.
+        None => {
+            let path = expand_path(&config.base_root)
+                .join(&project.workspace)
+                .join(&project.dir);
+            push(report, path, ConflictKind::BrokenLink);
+        }
+        Some(entry) => {
+            if !entry.is_symlink {
+                // A real directory (or file) sits where the link should be.
+                push(report, entry.path.clone(), ConflictKind::LinkReplacedByDir);
+            } else {
+                match entry.link_target.as_deref() {
+                    // Dangling symlink — target missing.
+                    None => push(report, entry.path.clone(), ConflictKind::BrokenLink),
+                    Some(resolved) if resolved == std::path::Path::new(target) => {
+                        // Healthy: symlink resolves to the recorded target.
+                    }
+                    Some(_) => push(report, entry.path.clone(), ConflictKind::LinkTargetDrift),
+                }
+            }
+        }
+    }
 }
 
 /// Reason an `adopt_one` call refused to act. The caller decides how to
@@ -350,6 +462,12 @@ mod tests {
         p
     }
 
+    fn linked(name: &str, workspace: &str, target: &str) -> Project {
+        let mut p = proj(name, workspace, None);
+        p.link = Some(target.to_string());
+        p
+    }
+
     fn workspace(name: &str) -> Workspace {
         Workspace {
             name: name.to_string(),
@@ -372,6 +490,21 @@ mod tests {
             path: PathBuf::from(format!("/fake/{workspace}/{dir}")),
             is_git,
             remote: remote.map(str::to_string),
+            link_target: None,
+            is_symlink: false,
+        }
+    }
+
+    /// A symlink disk entry resolving to `target` (or dangling when `None`).
+    fn disk_link(workspace: &str, dir: &str, target: Option<&str>) -> DiskEntry {
+        DiskEntry {
+            workspace: workspace.to_string(),
+            dir: dir.to_string(),
+            path: PathBuf::from(format!("/fake/{workspace}/{dir}")),
+            is_git: target.is_some(),
+            remote: None,
+            link_target: target.map(PathBuf::from),
+            is_symlink: true,
         }
     }
 
@@ -442,5 +575,89 @@ mod tests {
         assert_eq!(report.conflicts[0].kind, ConflictKind::NonGitAtExpectedPath);
         // The project is matched on disk (even if non-git) so it's not an orphan.
         assert!(report.orphans.is_empty());
+    }
+
+    fn manifest_with(projects: Vec<Project>) -> Manifest {
+        Manifest {
+            version: 4,
+            workspaces: vec![workspace("acme")],
+            projects,
+        }
+    }
+
+    #[test]
+    fn classify_healthy_link_is_not_reported() {
+        let manifest = manifest_with(vec![linked("widgets", "acme", "/ext/widgets")]);
+        let disk = vec![disk_link("acme", "widgets", Some("/ext/widgets"))];
+        let report = classify(&config_with_base("/projects"), &manifest, &disk);
+        assert!(report.orphans.is_empty());
+        assert!(
+            report.conflicts.is_empty(),
+            "a link resolving to its recorded target is healthy"
+        );
+    }
+
+    #[test]
+    fn classify_missing_link_is_broken_not_orphan() {
+        let manifest = manifest_with(vec![linked("widgets", "acme", "/ext/widgets")]);
+        // Nothing on disk (no symlink, target absent — also the cross-machine case).
+        let report = classify(&config_with_base("/projects"), &manifest, &[]);
+        assert!(
+            report.orphans.is_empty(),
+            "a linked project is never an orphan"
+        );
+        assert_eq!(report.conflicts.len(), 1);
+        assert_eq!(report.conflicts[0].kind, ConflictKind::BrokenLink);
+    }
+
+    #[test]
+    fn classify_dangling_symlink_is_broken_link() {
+        let manifest = manifest_with(vec![linked("widgets", "acme", "/ext/widgets")]);
+        let disk = vec![disk_link("acme", "widgets", None)];
+        let report = classify(&config_with_base("/projects"), &manifest, &disk);
+        assert_eq!(report.conflicts.len(), 1);
+        assert_eq!(report.conflicts[0].kind, ConflictKind::BrokenLink);
+    }
+
+    #[test]
+    fn classify_link_target_drift() {
+        let manifest = manifest_with(vec![linked("widgets", "acme", "/ext/widgets")]);
+        let disk = vec![disk_link("acme", "widgets", Some("/other/widgets"))];
+        let report = classify(&config_with_base("/projects"), &manifest, &disk);
+        assert_eq!(report.conflicts.len(), 1);
+        assert_eq!(report.conflicts[0].kind, ConflictKind::LinkTargetDrift);
+    }
+
+    #[test]
+    fn classify_link_replaced_by_dir() {
+        let manifest = manifest_with(vec![linked("widgets", "acme", "/ext/widgets")]);
+        // A real (non-symlink) directory sits at the convention path.
+        let disk = vec![disk("acme", "widgets", true, None)];
+        let report = classify(&config_with_base("/projects"), &manifest, &disk);
+        assert_eq!(report.conflicts.len(), 1);
+        assert_eq!(report.conflicts[0].kind, ConflictKind::LinkReplacedByDir);
+    }
+
+    #[test]
+    fn classify_unexpected_symlink_for_managed_project() {
+        let manifest = manifest_with(vec![proj("web", "acme", None)]);
+        let disk = vec![disk_link("acme", "web", Some("/somewhere/web"))];
+        let report = classify(&config_with_base("/projects"), &manifest, &disk);
+        assert_eq!(report.conflicts.len(), 1);
+        assert_eq!(report.conflicts[0].kind, ConflictKind::UnexpectedSymlink);
+    }
+
+    #[test]
+    fn classify_untracked_symlink_is_never_adopt_eligible() {
+        let manifest = manifest_with(vec![]);
+        // A symlink (to a git repo) with no matching manifest entry.
+        let disk = vec![disk_link("acme", "extra", Some("/ext/extra"))];
+        let report = classify(&config_with_base("/projects"), &manifest, &disk);
+        assert!(
+            report.untracked_git.is_empty(),
+            "an untracked symlink must never be adopt-eligible"
+        );
+        assert!(report.untracked_non_git.is_empty());
+        assert!(report.conflicts.is_empty());
     }
 }

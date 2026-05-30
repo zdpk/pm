@@ -227,7 +227,17 @@ fn move_projects(projects: Vec<String>, workspace: String) -> Result<()> {
     // matches the unchanged manifest.
     let mut moved: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
     for plan in &plans {
-        if plan.src.exists() {
+        // Detect the source node including a (possibly broken) symlink: a
+        // linked project's convention path is a symlink, and `exists()` would
+        // miss a dangling one. `fs::rename` on a symlink relocates the link
+        // node itself, never the external target — exactly what we want.
+        let src_present = plan.src.exists()
+            || plan
+                .src
+                .symlink_metadata()
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false);
+        if src_present {
             if let Err(e) = fs::rename(&plan.src, &plan.dst) {
                 // Roll back.
                 for (src, dst) in moved.iter().rev() {
@@ -445,6 +455,65 @@ mod tests {
                 .unwrap()
                 .workspace,
             "default"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mv_linked_project_relocates_symlink_and_preserves_target() {
+        let env = TestEnv::new();
+        // Declare + materialize the target workspace.
+        std::fs::create_dir_all(env.workspace_dir("target")).unwrap();
+        let (config, mut manifest) = load_state().unwrap();
+        manifest
+            .workspaces
+            .push(Workspace::new("target".to_string()));
+        save_state(&config, &manifest).unwrap();
+
+        // Create a linked project in `default`.
+        let ext = env.tempdir_path().join("external").join("widgets");
+        crate::test_support::init_git_repo(&ext);
+        crate::commands::link::run(ext.to_string_lossy().into_owned(), None, None, None, None)
+            .expect("link should succeed");
+
+        move_projects(vec!["widgets".to_string()], "target".to_string())
+            .expect("move should succeed");
+
+        let old = env.project_dir("default", "widgets");
+        let new = env.project_dir("target", "widgets");
+        assert!(
+            std::fs::symlink_metadata(&old).is_err(),
+            "old symlink should be gone"
+        );
+        assert!(
+            std::fs::symlink_metadata(&new)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "new convention path should be a symlink"
+        );
+        let canonical_ext = std::fs::canonicalize(&ext).unwrap();
+        assert_eq!(
+            std::fs::canonicalize(&new).unwrap(),
+            canonical_ext,
+            "moved symlink must still resolve to the external target"
+        );
+        assert!(
+            ext.join(".git").exists(),
+            "external target must not be moved"
+        );
+
+        let manifest = load_manifest().unwrap();
+        let p = manifest
+            .projects
+            .iter()
+            .find(|p| p.name == "widgets")
+            .unwrap();
+        assert_eq!(p.workspace, "target");
+        assert_eq!(
+            p.link.as_deref(),
+            Some(canonical_ext.display().to_string().as_str()),
+            "link target must be preserved across mv"
         );
     }
 }

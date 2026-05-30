@@ -54,6 +54,13 @@ pub fn run(
         {
             continue;
         }
+        // Linked projects are machine-local: their bytes live only at the
+        // external target, so there is nothing to clone. classify never marks
+        // a linked project as an orphan, but guard explicitly so a stray remote
+        // can never trigger a clone over a link.
+        if project.is_linked() {
+            continue;
+        }
         if let Some(remote) = &project.remote {
             // path computed mechanically from convention.
             let path = project_path(&config, &manifest, project)?;
@@ -546,6 +553,49 @@ mod tests {
         assert!(
             manifest.projects.iter().any(|p| p.name == "ghost"),
             "default sync must not prune"
+        );
+    }
+
+    #[test]
+    fn sync_never_clones_a_linked_project() {
+        let env = TestEnv::new();
+        seed_workspace(&env, "default");
+
+        // A remote that WOULD clone successfully if the link guard were broken.
+        let origin = env.tempdir_path().join("origin");
+        init_git_repo(&origin);
+
+        // A linked project carrying that remote, with no symlink/target on disk
+        // (a broken link — also the cross-machine case).
+        let (config, mut manifest) = load_state().unwrap();
+        let mut p = Project::new(
+            "widgets".to_string(),
+            "default".to_string(),
+            "widgets".to_string(),
+            "widgets".to_string(),
+        );
+        p.remote = Some(origin.to_string_lossy().into_owned());
+        p.link = Some("/nonexistent/widgets".to_string());
+        manifest.projects.push(p);
+        save_state(&config, &manifest).unwrap();
+        assert!(env
+            .project_dir("default", "widgets")
+            .symlink_metadata()
+            .is_err());
+
+        // Default sync must not clone (or prune) the linked project.
+        run(None, true, 1, false, false, false).expect("sync should be a no-op for links");
+
+        assert!(
+            env.project_dir("default", "widgets")
+                .symlink_metadata()
+                .is_err(),
+            "a linked project must never be cloned, even with a working remote"
+        );
+        let manifest = load_manifest().unwrap();
+        assert!(
+            manifest.projects.iter().any(|p| p.name == "widgets"),
+            "default sync must not prune the linked entry"
         );
     }
 }

@@ -1,5 +1,5 @@
 use crate::reconcile::{classify, scan_base_root, ConflictKind};
-use crate::state::{load_state, project_path_display};
+use crate::state::{load_state, project_path, project_path_display};
 use anyhow::Result;
 use colored::Colorize;
 
@@ -63,6 +63,10 @@ pub fn run() -> Result<()> {
             let label = match kind {
                 ConflictKind::NonGitAtExpectedPath => "path-conflict",
                 ConflictKind::RemoteMismatch => "remote-mismatch",
+                ConflictKind::BrokenLink => "broken-link",
+                ConflictKind::LinkTargetDrift => "link-drift",
+                ConflictKind::LinkReplacedByDir => "link-replaced-by-dir",
+                ConflictKind::UnexpectedSymlink => "unexpected-symlink",
             };
             println!(
                 "{} {:<16} {} ({})",
@@ -71,6 +75,31 @@ pub fn run() -> Result<()> {
                 path_display,
                 label.red()
             );
+            // Extra detail for link-specific diagnostics.
+            match kind {
+                ConflictKind::BrokenLink => {
+                    if let Some(target) = &project.link {
+                        println!(
+                            "    → links to {} (unavailable on this machine)",
+                            target.dimmed()
+                        );
+                    }
+                }
+                ConflictKind::LinkTargetDrift => {
+                    let expected = project.link.as_deref().unwrap_or("?").to_string();
+                    let found = project_path(&config, &manifest, project)
+                        .ok()
+                        .and_then(|p| std::fs::read_link(p).ok())
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "?".to_string());
+                    println!(
+                        "    → expected {} but resolves to {}",
+                        expected.dimmed(),
+                        found.dimmed()
+                    );
+                }
+                _ => {}
+            }
             issues += 1;
             continue;
         }

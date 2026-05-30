@@ -316,6 +316,13 @@ pub struct Project {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_spec: Option<RepoSpecMetadata>,
+
+    /// Canonical external target of a symlinked ("linked") project. Its
+    /// presence is the authoritative signal that the convention path is a
+    /// deliberate symlink rather than a managed (cloned/moved) directory.
+    /// `None` = ordinary managed project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 impl Project {
@@ -334,7 +341,14 @@ impl Project {
             access_count: 0,
             proj: None,
             repo_spec: None,
+            link: None,
         }
+    }
+
+    /// Whether this project is a link (its files live at an external target,
+    /// reached through a symlink at the convention path).
+    pub fn is_linked(&self) -> bool {
+        self.link.is_some()
     }
 }
 

@@ -43,6 +43,30 @@ pub enum Commands {
         force: bool,
     },
 
+    /// Link an existing external git repo into the convention path via a
+    /// symlink, without moving it. The repo keeps living at `<path>`; pm
+    /// manages only the symlink and the manifest entry. Unix-only.
+    Link {
+        /// Path to an existing git repository to link
+        path: String,
+
+        /// Project name (default: directory name)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Workspace to link into (default: current workspace)
+        #[arg(short, long)]
+        workspace: Option<String>,
+
+        /// Tags (comma separated)
+        #[arg(short, long)]
+        tags: Option<String>,
+
+        /// Note
+        #[arg(long)]
+        note: Option<String>,
+    },
+
     /// List projects
     #[command(visible_alias = "ls")]
     List {

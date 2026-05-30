@@ -136,6 +136,7 @@ pm() {
 |---------|-------|-------------|
 | `pm init` | | Initialize PM configuration |
 | `pm add <url\|path>` | | Add a project: clone a git URL into place, or move a local repo into `base_root/<workspace>/<name>` |
+| `pm link <path>` | | Link an existing external git repo into the convention path via a symlink, without moving it (Unix-only) |
 | `pm list` | `ls` | List projects |
 | `pm switch <project>` | `sw` | Switch to project directory, optionally restoring it |
 | `pm path <project>` | | Print project path without restoring |
@@ -592,6 +593,43 @@ Adopt skips entries whose name fails the project-name regex, whose workspace
 is not declared in the manifest (run `pm ws new <name>` first), or whose name
 collides with an existing project. Prune appends each removed project to
 `history.json` as `Unregistered` so `pm history` can surface it.
+
+## Linked Projects
+
+Sometimes a git repo must stay where it already lives — a shared checkout, a
+mount, or a path other tools depend on. `pm link` registers such a repo by
+placing a **symlink** at the convention path instead of moving it:
+
+```bash
+# Link an external repo into the current workspace (Unix-only).
+pm link /mnt/shared/widgets
+#   creates base_root/<workspace>/widgets  →  /mnt/shared/widgets
+#   and records the project with that canonical link target.
+
+pm link /mnt/shared/widgets --workspace labs --name gizmo
+```
+
+The external directory is never moved or copied — `pm` manages only the
+symlink and the manifest entry. Because the project still resolves at
+`base_root/<workspace>/<dir>`, the strict path convention stays intact.
+
+Link safety and lifecycle:
+
+- **`pm link` requires a git repository** and aborts if the convention path is
+  already occupied or the name collides — leaving disk and manifest untouched.
+- **`pm rm <linked>` removes only the symlink** (never the external target),
+  regardless of `-f`/`-r`.
+- **`pm mv <linked>` relocates the symlink** to the new convention path and
+  preserves the link target; the external directory is not moved.
+- **Links are machine-local.** A linked project does not exist on another
+  machine: there is no remote to clone, so `pm sync` there simply leaves it
+  absent (`pm check` reports it as a link unavailable on this machine).
+
+`pm check` distinguishes link drift from ordinary drift: `broken-link`
+(symlink or target missing), `link-drift` (resolves to the wrong path),
+`link-replaced-by-dir` (a real directory took the convention path), and
+`unexpected-symlink` (a managed project's path is unexpectedly a symlink).
+`pm sync` never clones or restores a linked project.
 
 ## Listing and Health Checks
 

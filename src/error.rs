@@ -32,6 +32,17 @@ pub enum PmError {
     #[error("Not a directory: {0}")]
     NotADirectory(String),
 
+    #[error("'{0}' is not a git repository. `pm link` only links existing git repositories.")]
+    NotAGitRepo(String),
+
+    #[error("Convention path '{0}' is already occupied; refusing to create a link there.")]
+    LinkPathOccupied(String),
+
+    // Constructed only in the `#[cfg(not(unix))]` link path; unused on Unix.
+    #[allow(dead_code)]
+    #[error("`pm link` is supported only on Unix platforms (symlink creation requires it).")]
+    LinkNotSupported,
+
     #[error("Invalid project name '{0}': must match [a-zA-Z][a-zA-Z0-9_-]*")]
     InvalidProjectName(String),
 

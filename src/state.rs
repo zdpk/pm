@@ -132,6 +132,7 @@ mod tests {
                 access_count: 0,
                 proj: None,
                 repo_spec: None,
+                link: None,
             }],
         }
     }
