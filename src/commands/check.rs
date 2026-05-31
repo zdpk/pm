@@ -1,4 +1,4 @@
-use crate::reconcile::{classify, scan_base_root, ConflictKind};
+use crate::reconcile::{classify, repairable_target, scan_base_root, ConflictKind};
 use crate::state::{load_state, project_path, project_path_display};
 use anyhow::Result;
 use colored::Colorize;
@@ -75,14 +75,23 @@ pub fn run() -> Result<()> {
                 path_display,
                 label.red()
             );
-            // Extra detail for link-specific diagnostics.
+            // Extra detail for link-specific diagnostics, including whether the
+            // condition is repairable by `pm sync` (recorded target exists).
+            let repairable = repairable_target(project).is_some();
             match kind {
                 ConflictKind::BrokenLink => {
                     if let Some(target) = &project.link {
-                        println!(
-                            "    → links to {} (unavailable on this machine)",
-                            target.dimmed()
-                        );
+                        if repairable {
+                            println!(
+                                "    → target {} exists; repairable — run `pm sync`",
+                                target.dimmed()
+                            );
+                        } else {
+                            println!(
+                                "    → links to {} (unavailable on this machine)",
+                                target.dimmed()
+                            );
+                        }
                     }
                 }
                 ConflictKind::LinkTargetDrift => {
@@ -97,6 +106,9 @@ pub fn run() -> Result<()> {
                         expected.dimmed(),
                         found.dimmed()
                     );
+                    if repairable {
+                        println!("      repairable — run `pm sync`");
+                    }
                 }
                 _ => {}
             }

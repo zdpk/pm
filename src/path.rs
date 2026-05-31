@@ -59,6 +59,31 @@ pub fn validate_project_dir(dir: &str) -> Result<(), PmError> {
     Ok(())
 }
 
+/// Create a symlink at `link` pointing at `target`, creating parent
+/// directories as needed. Symlink creation is Unix-only; on other platforms
+/// this returns `PmError::LinkNotSupported`. Shared by `pm link` and `pm sync`
+/// link repair so the platform gate lives in exactly one place.
+#[cfg(unix)]
+pub(crate) fn create_symlink(target: &Path, link: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = link.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::os::unix::fs::symlink(target, link).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to create symlink {} → {}: {}",
+            link.display(),
+            target.display(),
+            e
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub(crate) fn create_symlink(_target: &Path, _link: &Path) -> anyhow::Result<()> {
+    Err(PmError::LinkNotSupported.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

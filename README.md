@@ -629,7 +629,17 @@ Link safety and lifecycle:
 (symlink or target missing), `link-drift` (resolves to the wrong path),
 `link-replaced-by-dir` (a real directory took the convention path), and
 `unexpected-symlink` (a managed project's path is unexpectedly a symlink).
-`pm sync` never clones or restores a linked project.
+
+`pm sync` **repairs recoverable links** as part of its normal run: when the
+recorded target still exists, it recreates a missing symlink (`broken-link`) or
+corrects a drifted one (`link-drift`) so the convention path resolves to the
+target again. Repair touches only the symlink — `pm sync` never clones a linked
+project from a remote, never deletes the external target, and never removes a
+real directory. Unrecoverable cases stay manual and are only reported: a missing
+target (including on another machine) and `link-replaced-by-dir`. Repairs appear
+in `pm sync --dry-run` and are confirmed like restores (`--yes` to skip prompts).
+`pm check` marks a `broken-link`/`link-drift` as *repairable* when its target
+exists, pointing you at `pm sync`.
 
 ## Listing and Health Checks
 

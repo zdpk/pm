@@ -1,7 +1,10 @@
 use crate::config::{load_history, save_history};
 use crate::error::PmError;
 use crate::git::clone_repo;
-use crate::reconcile::{adopt_one, classify, prune_one, scan_base_root, AdoptSkip, DiskEntry};
+use crate::reconcile::{
+    adopt_one, classify, prune_one, repair_one, repairable_target, scan_base_root, AdoptSkip,
+    ConflictKind, DiskEntry,
+};
 use crate::restore::{can_prompt, prompt_yes_no};
 use crate::state::{find_workspace, load_state, project_path, save_state};
 use anyhow::Result;
@@ -15,6 +18,15 @@ struct RestoreTask {
     name: String,
     remote: String,
     path: PathBuf,
+}
+
+#[derive(Clone)]
+struct RepairTask {
+    name: String,
+    target: PathBuf,
+    convention: PathBuf,
+    /// `true` = correct a drifted symlink, `false` = recreate a missing one.
+    drift: bool,
 }
 
 /// Reconcile the manifest (desired state) with the filesystem (observed state).
@@ -108,6 +120,35 @@ pub fn run(
         restores.retain(|task| !pruning.contains(task.name.as_str()));
     }
 
+    // Repair plan: linked projects whose symlink is missing (broken-link) or
+    // drifted, AND whose recorded target still exists. Touches only the
+    // pointer; never clones. Unrecoverable linked conflicts (target missing,
+    // link-replaced-by-dir) fall through to the read-only conflict report.
+    let mut repairs: Vec<RepairTask> = Vec::new();
+    for conflict in &report.conflicts {
+        if workspace
+            .as_ref()
+            .is_some_and(|name| &conflict.project.workspace != name)
+        {
+            continue;
+        }
+        let drift = match conflict.kind {
+            ConflictKind::BrokenLink => false,
+            ConflictKind::LinkTargetDrift => true,
+            _ => continue,
+        };
+        if let Some(target) = repairable_target(conflict.project) {
+            repairs.push(RepairTask {
+                name: conflict.project.name.clone(),
+                target,
+                convention: conflict.path.clone(),
+                drift,
+            });
+        }
+    }
+    let repairing: std::collections::HashSet<&str> =
+        repairs.iter().map(|t| t.name.as_str()).collect();
+
     // Also report orphans with no remote when the user didn't ask for prune —
     // this preserves the v0.5.0 informational message.
     if !prune {
@@ -128,12 +169,16 @@ pub fn run(
         }
     }
 
-    // Surface conflicts (read-only signal). Sync never auto-resolves them.
+    // Surface remaining conflicts (read-only signal). Conflicts we're about to
+    // repair are shown in the plan instead, so skip them here.
     for conflict in &report.conflicts {
         if workspace
             .as_ref()
             .is_some_and(|name| &conflict.project.workspace != name)
         {
+            continue;
+        }
+        if repairing.contains(conflict.project.name.as_str()) {
             continue;
         }
         println!(
@@ -145,11 +190,12 @@ pub fn run(
     }
 
     // --- Print plan (also the only output in dry-run) ---
-    let nothing_to_do = restores.is_empty() && adopts.is_empty() && prunes.is_empty();
+    let nothing_to_do =
+        restores.is_empty() && adopts.is_empty() && prunes.is_empty() && repairs.is_empty();
 
     if dry_run {
         println!("{} dry-run; no changes will be made\n", "ℹ".cyan());
-        print_plan(&restores, &adopts, &prunes);
+        print_plan(&restores, &adopts, &prunes, &repairs);
         return Ok(());
     }
 
@@ -172,6 +218,7 @@ pub fn run(
                 })
             })
             .or_else(|| prunes.first().cloned())
+            .or_else(|| repairs.first().map(|t| t.name.clone()))
             .unwrap_or_else(|| "<reconcile>".to_string());
         return Err(PmError::NonInteractiveRestore(name).into());
     }
@@ -241,6 +288,34 @@ pub fn run(
         save_state(&config, &manifest)?;
     }
 
+    // --- Apply repairs (recreate / correct linked-project symlinks) ---
+    if !repairs.is_empty() {
+        let approve = !needs_prompts
+            || prompt_yes_no(
+                &format!(
+                    "Repair {} link(s) by recreating/correcting the symlink? Continue?",
+                    repairs.len()
+                ),
+                true,
+            )?;
+        if !approve {
+            println!("Skipped link repair.");
+        } else {
+            for task in &repairs {
+                match repair_one(&task.target, &task.convention) {
+                    Ok(()) => println!(
+                        "{} {} link '{}' → {}",
+                        "✓".green(),
+                        if task.drift { "Corrected" } else { "Restored" },
+                        task.name,
+                        task.target.display()
+                    ),
+                    Err(err) => println!("{} '{}' repair failed: {}", "✗".red(), task.name, err),
+                }
+            }
+        }
+    }
+
     // --- Apply restores (existing parallel clone) ---
     if !restores.is_empty() {
         if needs_prompts {
@@ -269,10 +344,26 @@ enum AdoptCandidate {
     Skip(AdoptSkip),
 }
 
-fn print_plan(restores: &[RestoreTask], adopts: &[(DiskEntry, AdoptCandidate)], prunes: &[String]) {
-    if restores.is_empty() && adopts.is_empty() && prunes.is_empty() {
+fn print_plan(
+    restores: &[RestoreTask],
+    adopts: &[(DiskEntry, AdoptCandidate)],
+    prunes: &[String],
+    repairs: &[RepairTask],
+) {
+    if restores.is_empty() && adopts.is_empty() && prunes.is_empty() && repairs.is_empty() {
         println!("Nothing to reconcile.");
         return;
+    }
+    if !repairs.is_empty() {
+        println!("Link repairs ({}):", repairs.len());
+        for task in repairs {
+            println!(
+                "  ~ {} {} → {}",
+                if task.drift { "relink" } else { "create" },
+                task.convention.display(),
+                task.target.display()
+            );
+        }
     }
     if !restores.is_empty() {
         println!("Restores ({}):", restores.len());
@@ -596,6 +687,103 @@ mod tests {
         assert!(
             manifest.projects.iter().any(|p| p.name == "widgets"),
             "default sync must not prune the linked entry"
+        );
+    }
+
+    /// Link an external git repo as `widgets` in `default`; return its canonical
+    /// target and the convention path (the symlink node).
+    #[cfg(unix)]
+    fn link_widgets(env: &TestEnv) -> (std::path::PathBuf, std::path::PathBuf) {
+        let target = env.tempdir_path().join("external").join("widgets");
+        init_git_repo(&target);
+        crate::commands::link::run(
+            target.to_string_lossy().into_owned(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("link should succeed");
+        (
+            std::fs::canonicalize(&target).unwrap(),
+            env.project_dir("default", "widgets"),
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_repairs_broken_link_when_target_exists() {
+        let env = TestEnv::new();
+        let (target, convention) = link_widgets(&env);
+        // Break: remove the symlink, leave the target.
+        std::fs::remove_file(&convention).unwrap();
+        assert!(convention.symlink_metadata().is_err());
+
+        run(None, true, 1, false, false, false).expect("sync should repair");
+
+        assert!(
+            std::fs::symlink_metadata(&convention)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the symlink should be recreated"
+        );
+        assert_eq!(std::fs::canonicalize(&convention).unwrap(), target);
+        assert!(target.join(".git").exists(), "the target must be untouched");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_corrects_drifted_link() {
+        let env = TestEnv::new();
+        let (target, convention) = link_widgets(&env);
+        // Drift: repoint the symlink at a different existing directory.
+        let other = env.tempdir_path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::remove_file(&convention).unwrap();
+        std::os::unix::fs::symlink(&other, &convention).unwrap();
+
+        run(None, true, 1, false, false, false).expect("sync should correct drift");
+
+        assert_eq!(
+            std::fs::canonicalize(&convention).unwrap(),
+            target,
+            "the symlink should be repointed to the recorded target"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_does_not_repair_link_replaced_by_dir() {
+        let env = TestEnv::new();
+        let (_target, convention) = link_widgets(&env);
+        // Replace the symlink with a real directory holding a file.
+        std::fs::remove_file(&convention).unwrap();
+        std::fs::create_dir_all(&convention).unwrap();
+        std::fs::write(convention.join("keep.txt"), "x").unwrap();
+
+        run(None, true, 1, false, false, false).expect("sync should be a no-op here");
+
+        let meta = std::fs::symlink_metadata(&convention).unwrap();
+        assert!(
+            meta.is_dir() && !meta.file_type().is_symlink(),
+            "a real directory at the convention path must be left intact"
+        );
+        assert!(convention.join("keep.txt").exists(), "its contents survive");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_dry_run_does_not_repair() {
+        let env = TestEnv::new();
+        let (_target, convention) = link_widgets(&env);
+        std::fs::remove_file(&convention).unwrap();
+
+        run(None, true, 1, false, false, true).expect("dry-run ok");
+
+        assert!(
+            convention.symlink_metadata().is_err(),
+            "dry-run must not recreate the symlink"
         );
     }
 }

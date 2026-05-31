@@ -6,7 +6,6 @@ use crate::state::{find_workspace, load_state, save_state, workspace_dir};
 use anyhow::Result;
 use colored::Colorize;
 use regex::Regex;
-use std::path::Path;
 
 /// Link an existing external git repository into the convention path.
 ///
@@ -78,7 +77,7 @@ pub fn run(
 
     // Create the symlink (Unix-only). Failing here leaves the manifest
     // untouched because we persist state only afterwards.
-    create_symlink(&target, &convention)?;
+    crate::path::create_symlink(&target, &convention)?;
 
     let remote = get_remote_url(&target_str);
     let repo_slug = remote
@@ -115,27 +114,6 @@ pub fn run(
         workspace_name.cyan()
     );
     Ok(())
-}
-
-#[cfg(unix)]
-fn create_symlink(target: &Path, link: &Path) -> Result<()> {
-    if let Some(parent) = link.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::os::unix::fs::symlink(target, link).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to create symlink {} → {}: {}",
-            link.display(),
-            target.display(),
-            e
-        )
-    })?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn create_symlink(_target: &Path, _link: &Path) -> Result<()> {
-    Err(PmError::LinkNotSupported.into())
 }
 
 #[cfg(all(test, unix))]

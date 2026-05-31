@@ -444,6 +444,42 @@ pub fn prune_one(
     Ok(())
 }
 
+/// The repairability predicate for a linked project: returns the recorded
+/// canonical target iff the project is linked AND that target currently exists
+/// on disk. A broken/drifted link is repairable exactly when its target is
+/// present (recreating the symlink would then resolve); a missing target (the
+/// cross-machine case) is not repairable.
+pub fn repairable_target(project: &Project) -> Option<PathBuf> {
+    let target = PathBuf::from(project.link.as_deref()?);
+    target.exists().then_some(target)
+}
+
+/// Recreate (or correct) a linked project's symlink so `convention` resolves
+/// to `target`. Touches only the pointer:
+/// - if a real (non-symlink) entry occupies `convention`, refuse — removing it
+///   could destroy data (`LinkReplacedByDir` stays manual);
+/// - if a stale symlink node is present (drift), remove just that node;
+/// - then create the symlink.
+///
+/// Caller is responsible for confirmation and for ensuring `target` exists
+/// (see [`repairable_target`]).
+pub fn repair_one(target: &std::path::Path, convention: &std::path::Path) -> anyhow::Result<()> {
+    match convention.symlink_metadata() {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            // Stale/drifted symlink node — remove just the pointer.
+            std::fs::remove_file(convention)?;
+        }
+        Ok(_) => {
+            // A real directory or file occupies the path; never delete it.
+            return Err(PmError::LinkPathOccupied(convention.display().to_string()).into());
+        }
+        Err(_) => { /* nothing there — create fresh below */ }
+    }
+
+    crate::path::create_symlink(target, convention)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,6 +681,32 @@ mod tests {
         let report = classify(&config_with_base("/projects"), &manifest, &disk);
         assert_eq!(report.conflicts.len(), 1);
         assert_eq!(report.conflicts[0].kind, ConflictKind::UnexpectedSymlink);
+    }
+
+    #[test]
+    fn repairable_target_requires_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let existing = dir.path().join("widgets");
+        std::fs::create_dir_all(&existing).unwrap();
+
+        let p = linked("widgets", "acme", existing.to_str().unwrap());
+        assert_eq!(
+            repairable_target(&p).as_deref(),
+            Some(existing.as_path()),
+            "an existing recorded target is repairable"
+        );
+
+        let missing = linked("widgets", "acme", dir.path().join("gone").to_str().unwrap());
+        assert!(
+            repairable_target(&missing).is_none(),
+            "a missing target is not repairable (cross-machine case)"
+        );
+
+        let unlinked = proj("web", "acme", None);
+        assert!(
+            repairable_target(&unlinked).is_none(),
+            "a non-linked project is never repairable"
+        );
     }
 
     #[test]
