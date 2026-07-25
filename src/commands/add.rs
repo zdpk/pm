@@ -7,13 +7,15 @@ use anyhow::Result;
 use colored::Colorize;
 use regex::Regex;
 use std::fs;
-use std::path::PathBuf;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 
 /// Add a project to the current workspace under the strict path convention.
 ///
 /// The destination is always `<base_root>/<workspace>/<dir>`. Two input modes:
 /// - **git URL** → clone the repository into the destination.
-/// - **local path** → move the directory into the destination.
+/// - **local path** → move an existing directory into the destination, or
+///   create the destination directly when the source is missing.
 ///
 /// External paths are no longer registered in-place; they are materialized at
 /// the convention path. If the destination already exists the command aborts
@@ -71,7 +73,7 @@ pub fn run(
     };
     let in_place = in_place_source.as_deref() == Some(destination.as_path());
 
-    if destination.exists() && !in_place {
+    if destination_is_occupied(&destination)? && !in_place {
         return Err(anyhow::anyhow!(
             "Destination '{}' already exists; refusing to add '{}'",
             destination.display(),
@@ -110,38 +112,53 @@ pub fn run(
         materialization = format!("Cloned {} → {}", source, destination.display());
     } else {
         let source_path = in_place_source.expect("resolved above for non-URL inputs");
-        if !source_path.is_dir() {
-            return Err(PmError::NotADirectory(source.clone()).into());
-        }
-        let was_git = is_git_repo(&source_path.display().to_string());
-        if !was_git {
+        let source_exists = local_source_exists(&source_path, &source)?;
+
+        if !source_exists {
             println!(
-                "{} Source is not a git repository; adding anyway",
+                "{} Source directory does not exist; creating an empty project directory",
                 "⚠".yellow()
             );
-        }
-        remote = if was_git {
-            get_remote_url(&source_path.display().to_string())
-        } else {
-            None
-        };
-
-        if in_place {
-            materialization = format!("Registered in place at {}", destination.display());
-        } else {
-            fs::rename(&source_path, &destination).map_err(|e| {
+            fs::create_dir(&destination).map_err(|error| {
                 anyhow::anyhow!(
-                    "Failed to move '{}' to '{}': {}. Manifest left unchanged.",
-                    source_path.display(),
+                    "Failed to create project directory '{}': {}. Manifest left unchanged.",
                     destination.display(),
-                    e
+                    error
                 )
             })?;
-            materialization = format!(
-                "Moved {} → {}",
-                source_path.display(),
-                destination.display()
-            );
+            remote = None;
+            materialization = format!("Created and registered {}", destination.display());
+        } else {
+            let was_git = is_git_repo(&source_path.display().to_string());
+            if !was_git {
+                println!(
+                    "{} Source is not a git repository; adding anyway",
+                    "⚠".yellow()
+                );
+            }
+            remote = if was_git {
+                get_remote_url(&source_path.display().to_string())
+            } else {
+                None
+            };
+
+            if in_place {
+                materialization = format!("Registered in place at {}", destination.display());
+            } else {
+                fs::rename(&source_path, &destination).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to move '{}' to '{}': {}. Manifest left unchanged.",
+                        source_path.display(),
+                        destination.display(),
+                        e
+                    )
+                })?;
+                materialization = format!(
+                    "Moved {} → {}",
+                    source_path.display(),
+                    destination.display()
+                );
+            }
         }
     }
 
@@ -203,20 +220,61 @@ fn looks_like_git_url(s: &str) -> bool {
 }
 
 fn resolve_local_source(source: &str) -> Result<PathBuf> {
-    let normalized = normalize_path(source)
-        .map_err(|e| anyhow::anyhow!("Source path '{}' could not be resolved: {}", source, e))?;
-    let expanded = expand_path(&normalized);
-    if !expanded.exists() {
-        return Err(PmError::PathNotFound(source.to_string()).into());
+    let expanded = expand_path(source);
+    let absolute = if expanded.is_absolute() {
+        expanded
+    } else {
+        std::env::current_dir()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Source path '{}' could not be resolved from the current directory: {}",
+                    source,
+                    e
+                )
+            })?
+            .join(expanded)
+    };
+
+    if absolute.exists() {
+        let normalized = normalize_path(source).map_err(|e| {
+            anyhow::anyhow!("Source path '{}' could not be resolved: {}", source, e)
+        })?;
+        Ok(expand_path(&normalized))
+    } else {
+        Ok(absolute)
     }
-    Ok(expanded)
+}
+
+fn destination_is_occupied(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(anyhow::anyhow!(
+            "Failed to inspect destination '{}': {}",
+            path.display(),
+            error
+        )),
+    }
+}
+
+fn local_source_exists(path: &Path, source: &str) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(true),
+        Ok(_) => Err(PmError::NotADirectory(source.to_string()).into()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(anyhow::anyhow!(
+            "Failed to inspect source path '{}': {}",
+            path.display(),
+            error
+        )),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::load_manifest;
-    use crate::test_support::{init_git_repo, TestEnv};
+    use crate::test_support::{TestEnv, init_git_repo};
 
     #[test]
     fn add_moves_local_repo_into_convention_path() {
@@ -262,6 +320,92 @@ mod tests {
 
         let manifest = load_manifest().expect("load manifest");
         assert!(manifest.projects.iter().any(|p| p.name == "origin"));
+    }
+
+    #[test]
+    fn add_creates_and_registers_missing_directory() {
+        let env = TestEnv::new();
+        let dir = env.project_dir("default", "newapp");
+        assert!(!dir.exists(), "test project directory should start missing");
+
+        run(dir.to_string_lossy().into_owned(), None, None, None, false)
+            .expect("add should create and register a missing directory");
+
+        assert!(dir.is_dir(), "missing project directory should be created");
+
+        let manifest = load_manifest().expect("load manifest");
+        let project = manifest
+            .projects
+            .iter()
+            .find(|p| p.name == "newapp")
+            .expect("manifest should contain 'newapp'");
+        assert_eq!(project.workspace, "default");
+        assert_eq!(project.dir, "newapp");
+        assert_eq!(project.remote, None);
+    }
+
+    #[test]
+    fn add_missing_external_path_creates_destination_directly() {
+        let env = TestEnv::new();
+        let src = env.tempdir_path().join("external").join("newapp");
+        let dest = env.project_dir("default", "newapp");
+        assert!(!src.exists());
+        assert!(!dest.exists());
+
+        run(src.to_string_lossy().into_owned(), None, None, None, false)
+            .expect("add should create the managed project directory");
+
+        assert!(
+            !src.exists(),
+            "a missing external source should not be created just to move it"
+        );
+        assert!(dest.is_dir(), "managed destination should be created");
+        let manifest = load_manifest().expect("load manifest");
+        assert!(manifest.projects.iter().any(|p| p.name == "newapp"));
+    }
+
+    #[test]
+    fn add_does_not_create_missing_source_when_destination_exists() {
+        let env = TestEnv::new();
+        let src = env.tempdir_path().join("external").join("myapp");
+        let dest = env.project_dir("default", "myapp");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        let err = run(src.to_string_lossy().into_owned(), None, None, None, false).unwrap_err();
+
+        assert!(err.to_string().contains("already exists"));
+        assert!(
+            !src.exists(),
+            "source directory should not be created when add aborts"
+        );
+        let manifest = load_manifest().expect("load manifest");
+        assert!(!manifest.projects.iter().any(|p| p.name == "myapp"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn add_aborts_when_destination_is_dangling_symlink() {
+        let env = TestEnv::new();
+        let src = env.tempdir_path().join("external").join("myapp");
+        init_git_repo(&src);
+
+        let dest = env.project_dir("default", "myapp");
+        let missing_target = env.tempdir_path().join("missing-target");
+        std::os::unix::fs::symlink(&missing_target, &dest).unwrap();
+
+        let err = run(src.to_string_lossy().into_owned(), None, None, None, false).unwrap_err();
+
+        assert!(err.to_string().contains("already exists"));
+        assert!(src.exists(), "source must not be moved");
+        assert!(
+            std::fs::symlink_metadata(&dest)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "destination symlink must remain untouched"
+        );
+        let manifest = load_manifest().expect("load manifest");
+        assert!(!manifest.projects.iter().any(|p| p.name == "myapp"));
     }
 
     #[test]

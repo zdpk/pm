@@ -214,19 +214,22 @@ $ pm ls
 
 ## `pm add`
 
-기존 디렉토리를 프로젝트로 등록.
+Git URL 또는 로컬 경로를 현재 workspace의 관리 경로에 materialize한 뒤
+프로젝트로 등록한다. Git URL은 clone하고, 존재하는 로컬 디렉토리는
+이동하며, 존재하지 않는 로컬 경로는 관리 경로에 빈 프로젝트
+디렉토리를 생성한다.
 
 ### 사용법
 
 ```bash
-pm add [path] [options]
+pm add [path-or-url] [options]
 ```
 
 ### 인자
 
 | 인자 | 설명 | 기본값 |
 |------|------|--------|
-| `path` | 프로젝트 경로 | `.` (현재 디렉토리) |
+| `path-or-url` | 로컬 프로젝트 경로 또는 Git URL | `.` (현재 디렉토리) |
 
 ### 옵션
 
@@ -235,39 +238,54 @@ pm add [path] [options]
 | `--name <name>` | `-n` | 프로젝트 이름 지정 (기본: 디렉토리명) |
 | `--tags <tags>` | `-t` | 태그 추가 (쉼표 구분) |
 | `--note <note>` | | 메모 추가 |
-| `--force` | `-f` | 이미 등록된 경로여도 덮어쓰기 |
+| `--force` | `-f` | 충돌하는 manifest 항목 교체 (기존 목적지는 덮어쓰지 않음) |
 
 ### 동작 흐름
 
-1. 경로 정규화 (상대 → 절대 → `~/`)
-2. 유효성 검사 (경로 존재, .git 존재 여부)
-3. 이름 결정 (옵션 또는 디렉토리명)
-4. 현재 workspace에 프로젝트 등록
-5. 결과 출력
+1. 입력을 Git URL 또는 로컬 경로로 분류
+2. 이름 결정 (`--name`, URL의 저장소명 또는 로컬 경로의 마지막 요소)
+3. 이름과 manifest 충돌을 검증하고 목적지를
+   `<base_root>/<current_workspace>/<name>`으로 결정
+4. 입력을 목적지에 materialize
+   - Git URL: 목적지로 직접 clone
+   - 존재하는 로컬 디렉토리: 목적지로 이동
+   - 목적지 자체를 가리키는 로컬 디렉토리: 제자리에서 등록
+   - 존재하지 않는 로컬 경로: 원래 소스 경로는 만들지 않고 목적지에
+     빈 디렉토리 생성
+5. 로컬 Git 저장소이면 `origin`을 remote로 저장하고, Git 저장소가
+   아니면 경고 후 계속 진행
+6. materialize가 성공한 뒤 manifest에 등록하고 현재 프로젝트로 설정
+7. 결과 출력
 
 ### 출력 예시
 
 ```bash
-$ pm add .
+$ pm add ~/github/my-app
+✓ Moved ~/github/my-app → ~/ws/default/my-app
 ✓ Added 'my-app' to workspace 'default'
 
-$ pm add ~/github/not-git
-⚠ Not a git repository, adding anyway...
-✓ Added 'not-git' to workspace 'default'
+$ pm add ~/github/new-app
+⚠ Source directory does not exist; creating an empty project directory
+✓ Created and registered ~/ws/default/new-app
+✓ Added 'new-app' to workspace 'default'
 
-$ pm add ~/github/not-found
-✗ Path does not exist: ~/github/not-found
+$ pm add https://github.com/acme/company-api.git
+✓ Cloned https://github.com/acme/company-api.git → ~/ws/default/company-api
+✓ Added 'company-api' to workspace 'default'
 ```
 
 ### 검증 규칙
 
 | 항목 | 규칙 | 실패 시 |
 |------|------|---------|
-| 경로 존재 | 디렉토리여야 함 | 에러 |
-| Git 저장소 | `.git` 존재 | 경고 후 진행 |
-| 이름 중복 | 기존 이름과 충돌 | 에러 (`--force`로 해결) |
-| 경로 중복 | 기존 경로와 충돌 | 에러 (`--force`로 해결) |
-| 이름 형식 | 영문, 숫자, `-`, `_` | 에러 |
+| 로컬 소스 | 존재하면 디렉토리여야 함. 존재하지 않으면 빈 관리 디렉토리 생성 | 파일 등 디렉토리가 아닌 항목이면 에러 |
+| Git 저장소 | 로컬 디렉토리에 `.git`이 없어도 등록 가능 | 경고 후 진행 |
+| Git URL | 목적지로 clone할 수 있어야 함 | clone 실패 시 에러, manifest 변경 없음 |
+| 목적지 | 제자리 등록을 제외하고 어떤 파일시스템 항목도 없어야 함 | 에러, `--force`로도 덮어쓰지 않음 |
+| 이름 중복 | 기존 manifest 이름과 충돌하지 않아야 함 | 에러 (`--force`는 충돌 항목 교체) |
+| 경로 중복 | 같은 workspace의 `dir`과 충돌하지 않아야 함 | 에러 (`--force`는 충돌 항목 교체) |
+| 이름 형식 | 영문자로 시작하고 영문, 숫자, `-`, `_`만 사용 | 에러 |
+| 이동/생성 | 목적지 materialize가 성공해야 함 | 에러, manifest 변경 없음 |
 
 ---
 

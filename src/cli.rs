@@ -20,9 +20,9 @@ pub enum Commands {
         force: bool,
     },
 
-    /// Add existing directory as a project
+    /// Add a directory or git URL as a project
     Add {
-        /// Project path (default: current directory)
+        /// Project path; created automatically when missing (default: current directory)
         #[arg(default_value = ".")]
         path: String,
 

@@ -124,23 +124,51 @@ The system SHALL validate every workspace and project entry against the path con
 
 ### Requirement: `pm add` materializes projects at the convention path
 
-The `pm add` command SHALL ensure that after success the project's working copy exists at `<base_root>/<workspace>/<project.dir>`. When a source path is provided that is outside this location, the command SHALL move it into place; when a git URL is provided, the command SHALL clone directly into place. The command SHALL NOT register external paths as projects.
+The `pm add` command SHALL ensure that after success the project's working copy exists at `<base_root>/<workspace>/<project.dir>`. When a git URL is provided, the command SHALL clone directly into that destination. When a local source path names an existing directory outside the destination, the command SHALL move it into place; when it names the destination itself, the command SHALL register it in place. When a local source path does not exist, the command SHALL create an empty directory at the managed destination and register it without creating the missing source path. An existing local source that is not a directory SHALL be rejected. The command SHALL NOT register external paths as projects.
 
 #### Scenario: Adding a git URL clones into the convention path
 - **WHEN** the user runs `pm add` with a git URL in workspace `acme` with name `web`
 - **THEN** the repository is cloned at `<base_root>/acme/web`
+- **AND** the project is registered only after the clone succeeds
 
-#### Scenario: Adding an existing external clone moves it into place
-- **WHEN** the user runs `pm add` pointing to a git working copy at an external path
-- **THEN** the working copy is moved to `<base_root>/<workspace>/<project>` before manifest update
+#### Scenario: Adding an existing external directory moves it into place
+- **GIVEN** `/external/web` is an existing directory
+- **WHEN** the user runs `pm add /external/web` in workspace `acme`
+- **THEN** the directory is moved to `<base_root>/acme/web` before manifest update
+- **AND** `/external/web` no longer exists
+
+#### Scenario: Adding a missing local path creates an empty managed project
+- **GIVEN** `/external/web` does not exist
+- **WHEN** the user runs `pm add /external/web` in workspace `acme`
+- **THEN** an empty directory is created at `<base_root>/acme/web`
+- **AND** `/external/web` is not created
+- **AND** the project is registered with no remote
+
+#### Scenario: Adding a project already at its managed destination registers in place
+- **GIVEN** `<base_root>/acme/web` is an existing directory
+- **WHEN** the user runs `pm add <base_root>/acme/web` in workspace `acme`
+- **THEN** the directory is registered without being moved or recreated
+
+#### Scenario: Existing non-directory source is rejected
+- **GIVEN** `/external/web` exists as a non-directory filesystem entry
+- **WHEN** the user runs `pm add /external/web`
+- **THEN** the command fails with a not-a-directory error
+- **AND** the manifest is unchanged
 
 #### Scenario: Existing destination aborts the add
-- **WHEN** the destination `<base_root>/<workspace>/<project>` already exists
+- **GIVEN** the source is not the managed destination itself
+- **WHEN** any filesystem entry already occupies `<base_root>/<workspace>/<project>`
 - **THEN** the command fails with an error and leaves the manifest unchanged
+- **AND** `--force` does not overwrite or remove the destination
 
 #### Scenario: Move failure leaves manifest unchanged
 - **WHEN** moving an external working copy into place fails partway
 - **THEN** the manifest is not updated and the error reports the partial state
+
+#### Scenario: Empty-directory creation failure leaves manifest unchanged
+- **GIVEN** the supplied local source path is missing
+- **WHEN** creating the managed destination fails
+- **THEN** the manifest is not updated
 
 ### Requirement: Manifest schema version is bumped to v4
 

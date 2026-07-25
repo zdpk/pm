@@ -140,7 +140,7 @@ pm() {
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `pm init` | | Initialize PM configuration |
-| `pm add <url\|path>` | | Add a project: clone a git URL into place, or move a local repo into `base_root/<workspace>/<name>` |
+| `pm add <url\|path>` | | Add a project: clone a git URL, move a local directory, or create the directory when the supplied path is missing |
 | `pm link <path>` | | Link an existing external git repo into the convention path via a symlink, without moving it (Unix-only) |
 | `pm list` | `ls` | List projects |
 | `pm switch <project>` | `sw` | Switch to project directory, optionally restoring it |
