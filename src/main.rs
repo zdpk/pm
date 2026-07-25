@@ -93,8 +93,15 @@ fn dispatch(cli: Cli) -> Result<()> {
             jobs,
             adopt,
             prune,
+            remotes,
             dry_run,
-        } => commands::sync::run(workspace, yes, jobs, adopt, prune, dry_run),
+        } => {
+            if remotes {
+                commands::sync::run_remotes(workspace, yes, dry_run)
+            } else {
+                commands::sync::run(workspace, yes, jobs, adopt, prune, dry_run)
+            }
+        }
         Commands::Repo(repo_cmd) => commands::repo::run(repo_cmd),
         Commands::Ports(ports_cmd) => commands::ports::run(ports_cmd),
         Commands::Run {

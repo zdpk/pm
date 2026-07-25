@@ -154,6 +154,9 @@ pub enum Commands {
     /// adopt untracked git directories at the convention path, and/or
     /// prune manifest entries whose directory is missing on disk. Both
     /// require interactive confirmation per item unless `--yes`.
+    ///
+    /// `--remotes` is a separate metadata-only mode that refreshes recorded
+    /// recovery URLs from each local repository's `origin`.
     Sync {
         /// Sync a single workspace
         workspace: Option<String>,
@@ -173,6 +176,10 @@ pub enum Commands {
         /// Remove manifest entries whose directory is missing on disk
         #[arg(long)]
         prune: bool,
+
+        /// Refresh manifest remote metadata from local Git origins
+        #[arg(long, conflicts_with_all = ["adopt", "prune"])]
+        remotes: bool,
 
         /// Print the plan and make no changes
         #[arg(long)]
@@ -659,5 +666,34 @@ mod tests {
             .err()
             .expect("flags should conflict");
         assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn sync_remotes_flag_parses_with_workspace() {
+        let cli = Cli::try_parse_from(["pm", "sync", "work", "--remotes", "-y"])
+            .expect("sync remote flags should parse");
+        match cli.command {
+            Commands::Sync {
+                workspace,
+                remotes,
+                yes,
+                ..
+            } => {
+                assert_eq!(workspace.as_deref(), Some("work"));
+                assert!(remotes);
+                assert!(yes);
+            }
+            _ => panic!("expected sync command"),
+        }
+    }
+
+    #[test]
+    fn sync_remotes_is_separate_from_adopt_and_prune() {
+        for flag in ["--adopt", "--prune"] {
+            let error = Cli::try_parse_from(["pm", "sync", "--remotes", flag])
+                .err()
+                .expect("flags should conflict");
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
     }
 }

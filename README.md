@@ -105,7 +105,8 @@ Each project stores:
 - `workspace` — the workspace name
 - `dir` — a single safe directory component (no `/`, `\`, `..`, etc.)
 - `repo_slug`
-- `remote` when available
+- `remote` when available — a cached recovery URL refreshed explicitly with
+  `pm sync --remotes`
 
 The effective local path is computed deterministically as:
 
@@ -149,7 +150,7 @@ pm() {
 | `pm history` | | Show recent removal history |
 | `pm use <workspace>` | | Switch workspace |
 | `pm workspace` | `ws` | Workspace management |
-| `pm sync [workspace]` | | Reconcile manifest vs. filesystem (`--adopt`, `--prune`, `--dry-run`) |
+| `pm sync [workspace]` | | Reconcile manifest vs. filesystem, or refresh cached origins with `--remotes` |
 | `pm repo` | | Track project repo spec/template versions |
 | `pm ports` | | Manage local project port allocations |
 | `pm run` | | Run commands with port environment overrides |
@@ -608,12 +609,29 @@ restore a missing project.
 ```bash
 pm ls --remote                 # live origins in the current workspace
 pm ls --all --remote           # live origins in every workspace
+pm sync --remotes --dry-run    # preview Git → manifest metadata updates
+pm sync --remotes --yes        # apply all updates without prompting
+pm sync work --remotes --yes   # update one workspace
 ```
 
 Remote listing reads each registered local repository directly and never
 fetches the network or changes Git/manifest state. A live `origin` takes
 precedence; when the checkout or origin is unavailable, the output retains the
 cached value and marks it `(saved)`.
+
+`pm sync --remotes` is an explicit metadata-only mode, separate from
+restore/adopt/prune. It copies changed or missing safe origins into the
+manifest and refreshes the derived `repo_slug`, but never modifies the Git
+remote itself. Missing paths, non-Git directories, and repositories without an
+`origin` keep their existing cached value instead of clearing it. The exact
+local `origin` URL is copied so changes such as HTTPS → SSH are reflected in
+future restore operations. Eligible origins must be independent of the
+directory from which a future restore runs: HTTP(S), SSH, Git-protocol and
+scp-style remotes are supported. Relative local paths and unsupported remote
+helper forms are skipped, preserving any previously saved value. An absolute
+local path (or `file:///...` URL) is accepted because it is cwd-independent,
+but it remains machine-local and will only restore while that path is
+available on the same machine.
 
 ## Linked Projects
 

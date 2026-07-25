@@ -72,6 +72,11 @@ pub enum PmError {
     )]
     NonInteractiveRestore(String),
 
+    #[error(
+        "Non-interactive mode cannot update remote metadata. Run 'pm sync --remotes --yes' or inspect with '--dry-run'."
+    )]
+    NonInteractiveRemoteSync,
+
     #[error("Config repo not configured. Set config_repo in config.json.")]
     ConfigRepoNotConfigured,
 

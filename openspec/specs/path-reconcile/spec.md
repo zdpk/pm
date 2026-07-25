@@ -8,12 +8,14 @@ convention. The deterministic mapping in `path-convention` makes the
 universe of "where a project should live" enumerable; this capability
 specifies the read-only diagnostics (`pm check`) and the opt-in mutating
 reconciler (`pm sync --adopt`, `pm sync --prune`) that act on it. It also
-defines how live local Git origins are inspected (`pm list --remote`).
+defines how live local Git origins are inspected (`pm list --remote`) and
+explicitly copied into portable manifest metadata (`pm sync --remotes`).
 
 All mutating actions are explicit: adopt and prune require per-item
-confirmation or `--yes`, and non-interactive runs without `--yes` refuse
-to proceed. Prune writes a `HistoryAction::Unregistered` snapshot so
-removed entries remain auditable.
+confirmation, while remote metadata synchronization confirms its aggregate
+plan; `--yes` bypasses either form. Non-interactive runs with pending changes
+without `--yes` refuse to proceed. Prune writes a
+`HistoryAction::Unregistered` snapshot so removed entries remain auditable.
 ## Requirements
 ### Requirement: `pm check` surfaces untracked directories
 
@@ -107,7 +109,7 @@ The `pm sync` command SHALL accept a `--dry-run` flag that prints the full plan 
 
 ### Requirement: Default `pm sync` behavior is unchanged
 
-When invoked without `--adopt` or `--prune`, `pm sync` SHALL behave exactly as before: it restores missing manifest entries that carry a remote and leaves everything else alone. Adopt and prune SHALL be opt-in.
+When invoked without `--adopt`, `--prune`, or `--remotes`, `pm sync` SHALL behave exactly as before: it restores missing manifest entries that carry a remote and leaves everything else alone. Adopt, prune, and remote metadata synchronization SHALL be opt-in.
 
 #### Scenario: Plain `pm sync` only restores; never adopts or prunes
 - **GIVEN** untracked git directories and orphan manifest entries both exist
@@ -144,6 +146,82 @@ non-system workspaces.
 - **WHEN** the user runs `pm list --remote`
 - **THEN** the origin is read from the recorded link target
 - **AND** the drifted convention symlink is not trusted as the remote source
+
+### Requirement: Remote metadata synchronization is explicit and one-way
+
+`pm sync --remotes` SHALL build a metadata-only Git-to-manifest plan from the
+local `origin` of each in-scope project. It SHALL update a missing or stale
+manifest `remote` and its derived `repo_slug`, but SHALL NOT change Git config,
+fetch the network, restore or clone repositories, adopt directories, prune
+entries, or repair links. An optional workspace argument SHALL restrict the
+plan to that workspace. `--remotes` SHALL be mutually exclusive with
+`--adopt` and `--prune`.
+
+The exact safe local origin URL SHALL be copied so transport or authentication
+changes are reflected in future restores. An ordinary managed project whose
+convention path is an unexpected symlink SHALL be skipped. A linked project
+SHALL use only its recorded link target as the trusted source. A safe recovery
+origin SHALL be independent of the working directory used by a later restore:
+HTTP(S), SSH, Git-protocol, and scp-style remotes qualify. An absolute local
+filesystem path or absolute `file:///` URL MAY qualify for same-machine
+recovery because its resolution is cwd-independent, but it is not portable
+across machines. Relative local paths and unsupported remote-helper forms
+SHALL be skipped without clearing previously cached metadata.
+
+#### Scenario: Local origin refreshes stale recovery metadata
+- **GIVEN** a registered local Git project whose origin identifies `acme/web` but whose manifest remote and repo slug identify `acme/old`
+- **WHEN** the user runs `pm sync --remotes --yes`
+- **THEN** the manifest remote and repo slug identify `acme/web`
+- **AND** the local origin and working tree are unchanged
+
+#### Scenario: Unavailable origin never clears recovery metadata
+- **GIVEN** registered projects that are respectively missing, non-Git, or have no `origin`, and each has a cached remote
+- **WHEN** the user runs `pm sync --remotes --yes`
+- **THEN** every cached remote and repo slug is preserved
+
+#### Scenario: Recorded link target is the only source for a linked project
+- **GIVEN** a linked project whose recorded target has origin `acme/web` while its drifted convention symlink points to a repository with origin `attacker/web`
+- **WHEN** the user runs `pm sync --remotes --yes`
+- **THEN** the manifest is updated only from the recorded target
+- **AND** the drifted symlink's origin is ignored
+
+#### Scenario: Credential-bearing origin is not made portable
+- **GIVEN** a local origin with HTTP(S) user information, password-like URL user information, or a query/fragment that may contain a token
+- **WHEN** the user lists or synchronizes remote metadata
+- **THEN** terminal output redacts the user information
+- **AND** `pm sync --remotes` does not persist that origin in the manifest
+
+#### Scenario: Relative local origin is not made recovery metadata
+- **GIVEN** a local origin such as `../repos/web.git` whose meaning depends on the process working directory
+- **WHEN** the user runs `pm sync --remotes --yes`
+- **THEN** the relative origin is not persisted in the manifest
+- **AND** any previously cached remote and repo slug are preserved
+
+#### Scenario: Absolute local origin supports same-machine recovery
+- **GIVEN** a local origin at an absolute path such as `/srv/git/web.git`
+- **WHEN** the user runs `pm sync --remotes --yes`
+- **THEN** the absolute origin and derived repo slug are persisted
+- **AND** the metadata is documented as machine-local rather than portable across machines
+
+### Requirement: Remote metadata synchronization respects preview and confirmation
+
+`pm sync --remotes --dry-run` SHALL print all planned metadata updates and
+skips without changing the manifest, filesystem, or Git config. When updates
+are pending in a non-interactive context, `pm sync --remotes` without
+`--yes` SHALL fail before any mutation. If no update is pending, it SHALL
+succeed without requiring confirmation.
+
+#### Scenario: Remote dry-run is read-only
+- **GIVEN** at least one local origin differs from its cached manifest remote
+- **WHEN** the user runs `pm sync --remotes --dry-run`
+- **THEN** the old and new values are printed
+- **AND** the manifest, filesystem, and Git config are unchanged
+
+#### Scenario: Non-interactive remote update requires --yes
+- **GIVEN** a pending remote metadata update and no TTY
+- **WHEN** the user runs `pm sync --remotes` without `--yes`
+- **THEN** the command fails with an error referencing `--yes`
+- **AND** no metadata is changed
 
 ### Requirement: Reconcile recognizes linked projects
 
@@ -256,4 +334,3 @@ All such reporting SHALL be read-only.
 - **GIVEN** a linked project `widgets` whose recorded target does not exist
 - **WHEN** the user runs `pm check`
 - **THEN** `widgets` is reported as a broken link and is not marked repairable
-
