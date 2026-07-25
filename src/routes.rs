@@ -196,6 +196,7 @@ pub fn unregister_service(workspace: &str, project: &str, service: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TestEnv;
 
     #[test]
     fn canonical_hostname_format() {
@@ -236,5 +237,81 @@ mod tests {
         let back: RoutesData = serde_json::from_str(&json).unwrap();
         assert_eq!(back.entries.len(), 1);
         assert_eq!(back.entries[0].upstream_port, 26918);
+    }
+
+    #[test]
+    fn register_service_refreshes_routes_without_duplicates() {
+        let _env = TestEnv::new();
+        register_service("default", "blog", "front", 10_001).unwrap();
+        register_service("work", "api", "back", 20_001).unwrap();
+
+        register_service("default", "blog", "front", 10_002).unwrap();
+
+        let data = load_routes().unwrap();
+        let refreshed: Vec<&RouteEntry> = data
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.project_key == "default/blog"
+                    && entry.service_key == "front"
+            })
+            .collect();
+        assert_eq!(refreshed.len(), 2, "canonical route and alias expected");
+        assert!(
+            refreshed
+                .iter()
+                .all(|entry| entry.upstream_port == 10_002)
+        );
+
+        let mut hostnames: Vec<&str> = refreshed
+            .iter()
+            .map(|entry| entry.hostname.as_str())
+            .collect();
+        hostnames.sort_unstable();
+        assert_eq!(
+            hostnames,
+            vec!["front.blog.default.localhost", "front.blog.localhost"]
+        );
+
+        let unrelated = data
+            .entries
+            .iter()
+            .find(|entry| entry.project_key == "work/api")
+            .expect("refresh must preserve unrelated routes");
+        assert_eq!(unrelated.hostname, "back.api.work.localhost");
+        assert_eq!(unrelated.upstream_port, 20_001);
+    }
+
+    #[test]
+    fn unregister_service_removes_all_hostnames_and_preserves_neighbors() {
+        let _env = TestEnv::new();
+        register_service("default", "blog", "front", 10_001).unwrap();
+        register_service("default", "blog", "back", 20_001).unwrap();
+        register_service("work", "api", "back", 20_002).unwrap();
+
+        let removed = unregister_service("default", "blog", "front").unwrap();
+
+        assert_eq!(removed, 2, "canonical route and alias should be removed");
+        let data = load_routes().unwrap();
+        assert_eq!(data.entries.len(), 3);
+        assert!(data.entries.iter().all(|entry| {
+            !(entry.project_key == "default/blog"
+                && entry.service_key == "front")
+        }));
+        assert_eq!(
+            data.entries
+                .iter()
+                .filter(|entry| {
+                    entry.project_key == "default/blog"
+                        && entry.service_key == "back"
+                })
+                .count(),
+            2
+        );
+        assert!(
+            data.entries
+                .iter()
+                .any(|entry| entry.project_key == "work/api")
+        );
     }
 }

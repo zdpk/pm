@@ -65,6 +65,21 @@ reverse proxy가 담당합니다. 따라서 기본 포트가 7100이면 URL에�
 필요합니다. 이후 proxy를 80/443에 설치하는 기능이 추가될 경우에만 주소에서
 포트를 생략할 수 있습니다.
 
+상태의 역할은 다음과 같이 구분합니다.
+
+| 파일 | 역할 |
+|------|------|
+| `ports.json` | 서비스에 할당한 upstream 포트 |
+| `services.json` | PM이 실행하고 관리하는 process registry |
+| `routes.json` | live service로부터 파생한 hostname URL projection |
+
+`pm stop`은 service record와 그 서비스의 canonical/alias route를 모두
+제거합니다. 동일 서비스를 다시 등록할 때도 기존 alias를 서비스 단위로
+먼저 제거하여 이전 포트가 남지 않게 합니다. 이미 실행 중인 서비스를
+`pm run`으로 다시 확인할 때도 route projection을 재등록해 유실된 route를
+복구합니다. 대시보드 조회는 PID 생존 여부만 확인하며 상태 파일을 수정하지
+않습니다.
+
 이 라우팅은 HTTP `Host` header를 사용하는 application-layer reverse
 proxy이며 OS NAT나 범용 TCP port mapping이 아닙니다. PostgreSQL, Redis와
 같은 raw TCP 서비스는 hostname으로 분기하지 않고 공유 포트, database

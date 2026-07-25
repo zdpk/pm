@@ -129,11 +129,12 @@ fn spawn_service(
     service_key: &str,
     resolved: &ResolvedService,
 ) -> Result<()> {
-    // If a previous spawn is still alive, treat as a no-op so that
-    // `pm run` is idempotent.
-    if let Some(state) = svc_state::get(workspace, &project.name, service_key)?
-        && svc_state::pid_alive(state.pid)
-    {
+    if let Some(state) = reconcile_existing_service_route(
+        workspace,
+        &project.name,
+        service_key,
+        svc_state::pid_alive,
+    )? {
         eprintln!(
             "  {} {}/{} already running (pid {}, port {})",
             "—".dimmed(),
@@ -216,6 +217,30 @@ fn spawn_service(
         port
     );
     Ok(())
+}
+
+fn reconcile_existing_service_route(
+    workspace: &str,
+    project: &str,
+    service_key: &str,
+    pid_alive: impl FnOnce(u32) -> bool,
+) -> Result<Option<svc_state::ServiceState>> {
+    // If a previous spawn is still alive, treat as a no-op so that
+    // `pm run` is idempotent.
+    if let Some(state) = svc_state::get(workspace, project, service_key)?
+        && pid_alive(state.pid)
+    {
+        // `routes.json` is a derived projection and may have been removed or
+        // damaged while the detached service kept running. Refresh it even on
+        // the idempotent path so `pm run` repairs reachability.
+        routes::register_service(workspace, project, service_key, state.port)?;
+        return Ok(Some(state));
+    }
+
+    // A dead record can still have an old route. Remove that projection before
+    // attempting a replacement so a failed spawn cannot leave a stale URL.
+    routes::unregister_service(workspace, project, service_key)?;
+    Ok(None)
 }
 
 fn split_dev_cmd(dev_cmd: &str) -> (String, Vec<String>) {
@@ -396,6 +421,17 @@ fn print_summary(workspace: &str, project: &str, services: &[(String, ResolvedSe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TestEnv;
+
+    fn sample_service_state(port: u16) -> svc_state::ServiceState {
+        svc_state::ServiceState {
+            pid: 42,
+            port,
+            started_at: Utc::now(),
+            log_path: PathBuf::from("/tmp/pm-test-service.log"),
+            dev_cmd: "never spawned".into(),
+        }
+    }
 
     #[test]
     fn split_dev_cmd_simple() {
@@ -416,5 +452,55 @@ mod tests {
         let (p, a) = split_dev_cmd("flutter");
         assert_eq!(p, "flutter");
         assert!(a.is_empty());
+    }
+
+    #[test]
+    fn running_service_repairs_missing_route_without_respawn() {
+        let _env = TestEnv::new();
+        svc_state::upsert(
+            "work",
+            "api",
+            "back",
+            sample_service_state(26_918),
+        )
+        .unwrap();
+        assert!(routes::load_routes().unwrap().entries.is_empty());
+
+        let running =
+            reconcile_existing_service_route("work", "api", "back", |_| true)
+                .unwrap()
+                .expect("live service should short-circuit spawning");
+
+        assert_eq!(running.port, 26_918);
+        let data = routes::load_routes().unwrap();
+        assert_eq!(data.entries.len(), 1);
+        assert_eq!(data.entries[0].hostname, "back.api.work.localhost");
+        assert_eq!(data.entries[0].upstream_port, 26_918);
+        assert_eq!(data.entries[0].project_key, "work/api");
+        assert_eq!(data.entries[0].service_key, "back");
+    }
+
+    #[test]
+    fn dead_service_removes_stale_route_before_restart() {
+        let _env = TestEnv::new();
+        svc_state::upsert(
+            "work",
+            "api",
+            "back",
+            sample_service_state(26_918),
+        )
+        .unwrap();
+        routes::register_service("work", "api", "back", 26_918).unwrap();
+        routes::register_service("work", "api", "front", 16_918).unwrap();
+
+        let running =
+            reconcile_existing_service_route("work", "api", "back", |_| false)
+                .unwrap();
+
+        assert!(running.is_none(), "dead service must proceed to restart");
+        let data = routes::load_routes().unwrap();
+        assert_eq!(data.entries.len(), 1);
+        assert_eq!(data.entries[0].hostname, "front.api.work.localhost");
+        assert_eq!(data.entries[0].service_key, "front");
     }
 }

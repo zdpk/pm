@@ -142,6 +142,47 @@ hostname-to-port lookup.
 - **THEN** the browser connects to the shared proxy on port 7100
 - **AND** the proxy, rather than DNS, chooses the service's upstream port
 
+### Requirement: Service and route lifecycle reconciliation
+`services.json` SHALL be the authoritative registry of PM-managed processes.
+PID liveness SHALL determine whether a recorded process is currently running.
+`routes.json` SHALL be a derived URL projection of those services, not an
+independent application registry. Route registration SHALL be
+idempotent per `(workspace, project, service)`: re-registering a service SHALL
+remove all prior canonical and alias routes for that service before writing its
+current routes.
+
+PM SHALL remove the service record and every route belonging to that service
+when `pm stop` succeeds. Re-running `pm run` for a service whose recorded PID is
+still alive SHALL re-register its route projection, repairing a missing or stale
+route without spawning a duplicate process. Before replacing a dead recorded
+process, PM SHALL remove its prior route projection so a failed replacement
+spawn does not leave that stale route behind. Read-only state consumers such as
+the dashboard MUST NOT rewrite either registry as a side effect.
+
+#### Scenario: service restart replaces all aliases
+- **GIVEN** a service has a canonical hostname and a default-workspace alias pointing to port 13042
+- **WHEN** PM re-registers the same service on port 13043
+- **THEN** every route for that `(workspace, project, service)` points to port 13043
+- **AND** no stale alias remains on port 13042
+
+#### Scenario: explicit stop removes process and routes
+- **GIVEN** `work/api/back` is recorded in `services.json` and has one or more entries in `routes.json`
+- **WHEN** `pm stop back api` successfully stops it
+- **THEN** its service record is removed
+- **AND** all of its canonical and alias route entries are removed
+
+#### Scenario: live process repairs a missing route
+- **GIVEN** a service PID in `services.json` is alive but its route projection is missing
+- **WHEN** the same service is targeted by `pm run`
+- **THEN** PM re-registers the service route using its recorded port
+- **AND** PM does not spawn a duplicate process
+
+#### Scenario: dead process is not treated as running
+- **GIVEN** a service PID remains in `services.json` after the process exits unexpectedly
+- **WHEN** a read-only consumer reads the application state
+- **THEN** the dead service is not reported as running
+- **AND** the read does not mutate `services.json` or `routes.json`
+
 ### Requirement: Daemon auto-spawn (gpg-agent pattern)
 On any orchestrator-mode `pm run` invocation, the system SHALL detect whether the daemon is alive (via PID file + control plane health check) and spawn it as a detached background process if not. The daemon SHALL share the same `pm` binary, entered via the hidden `pm __daemon` subcommand. The CLI invocation that triggered the spawn SHALL exit normally after registering its routes; the daemon SHALL persist independently.
 
