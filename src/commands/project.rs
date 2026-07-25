@@ -1122,7 +1122,7 @@ fn warn_on_competing_lockfiles(project_dir: &Path) {
     }
 }
 
-/// Default `services:` block to write into `.proj.yaml` when the user runs
+/// Default `services:` block to write into `.project.yaml` when the user runs
 /// `pm proj init` without `--no-services`.
 ///
 /// The intent is "minimum viable orchestrator" — a single service named

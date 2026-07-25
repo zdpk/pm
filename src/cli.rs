@@ -187,7 +187,7 @@ pub enum Commands {
     ///
     /// In v0.4.0, `pm run` has two modes that share the same grammar:
     ///
-    /// - **Orchestrator** (when `.proj.yaml` defines `services:`): spawns
+    /// - **Orchestrator** (when `.project.yaml` defines `services:`): spawns
     ///   one or all services with the daemon registered to route
     ///   `<service>.<project>.<workspace>.localhost` to each upstream port.
     ///   Examples: `pm run`, `pm run front`, `pm run back api`.
@@ -330,7 +330,7 @@ pub enum ProjectCommand {
         #[arg(short = 'y', long = "no-interactive")]
         yes: bool,
 
-        /// Do not auto-add a default `services:` section to .proj.yaml.
+        /// Do not auto-add a default `services:` section to .project.yaml.
         /// Default behaviour: a single service named after the framework's
         /// kind (e.g. `front` for nextjs) is registered so `pm run` works
         /// out of the box.
@@ -383,7 +383,7 @@ pub enum ProjectCommand {
     /// unified diff between the current file and the freshly synthesized
     /// result without writing. With `--categories` the user overrides the
     /// default category selection (defaults are derived from
-    /// `.proj.yaml`'s `language` and `framework`).
+    /// `.project.yaml`'s `language` and `framework`).
     Gitignore {
         /// Show diff against the current `.gitignore` without writing.
         #[arg(long)]

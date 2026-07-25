@@ -33,7 +33,7 @@ pub struct ProjConfig {
     pub services: HashMap<String, ServiceDef>,
 }
 
-/// A single service entry under `.proj.yaml` `services:`.
+/// A single service entry under `.project.yaml` `services:`.
 ///
 /// All fields are optional. Missing values are inferred from the project's
 /// (or service-level) `framework` via [`resolve_service_defaults`].

@@ -2,7 +2,7 @@
 //!
 //! See `design.md` for the full chain. The high-level flow is:
 //!
-//! 1. Resolve services (all or one) from `.proj.yaml`.
+//! 1. Resolve services (all or one) from `.project.yaml`.
 //! 2. If `dev.auto_start_docker`, ensure `pm-local-db` and `pm-local-redis`
 //!    are running.
 //! 3. If Postgres is reachable on loopback, ensure the per-project database
@@ -114,7 +114,7 @@ fn pick_services(
         && out.is_empty()
     {
         return Err(anyhow::anyhow!(
-            "service '{t}' is not defined in .proj.yaml"
+            "service '{t}' is not defined in .project.yaml"
         ));
     }
     Ok(out)

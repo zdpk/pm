@@ -8,7 +8,7 @@
 //! ```
 //!
 //! v0.4.0 orchestrator grammar (activated when the resolved project has a
-//! `.proj.yaml` with a non-empty `services:` section AND the user did NOT
+//! `.project.yaml` with a non-empty `services:` section AND the user did NOT
 //! pass a `--` separator):
 //! ```text
 //! pm run                  # all services in current project
@@ -18,8 +18,8 @@
 //! ```
 //!
 //! Disambiguation rule: if `--` was passed, run legacy mode unconditionally.
-//! Otherwise consult the project's `.proj.yaml`. If the first positional
-//! matches a service key in `.proj.yaml.services`, treat it as a service;
+//! Otherwise consult the project's `.project.yaml`. If the first positional
+//! matches a service key in `.project.yaml.services`, treat it as a service;
 //! else treat it as a project name.
 
 use crate::config::load_ports;
@@ -41,7 +41,7 @@ pub fn run(positional: Vec<String>, command: Vec<String>) -> Result<()> {
     }
 
     // No `--`. Inspect the first positional and the current project's
-    // .proj.yaml to decide service-mode vs all-services vs legacy fallback.
+    // .project.yaml to decide service-mode vs all-services vs legacy fallback.
     let (workspace, project, project_dir) = resolve_project_from_positional(&positional)?;
 
     let proj_config = proj::load_proj_config(&project_dir).ok();
@@ -50,7 +50,7 @@ pub fn run(positional: Vec<String>, command: Vec<String>) -> Result<()> {
     let has_services = services.map(|s| !s.is_empty()).unwrap_or(false);
     if !has_services {
         return Err(anyhow!(
-            "No `--` command provided and project '{}' has no services in .proj.yaml. \
+            "No `--` command provided and project '{}' has no services in .project.yaml. \
              Did you mean `pm run -- <command>` or `pm proj init` to add services?",
             project.name
         ));

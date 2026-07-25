@@ -3,16 +3,16 @@
 ## Purpose
 TBD - created by archiving change local-dev-orchestrator. Update Purpose after archive.
 ## Requirements
-### Requirement: `.proj.yaml` services schema
-The `.proj.yaml` file SHALL accept an optional top-level `services:` map where each key is a service identifier (e.g., `front`, `back`) and each value is an object with optional fields `dir` (default: `.`), `dev_cmd`, `port_kind`, `framework`, and `path`. Missing `dev_cmd` and `port_kind` SHALL be inferred from the project (or service-level) `framework` value via a built-in defaults table. A `.proj.yaml` without a `services:` section SHALL behave as in v0.3.0 (no orchestrator features).
+### Requirement: `.project.yaml` services schema
+The `.project.yaml` file SHALL accept an optional top-level `services:` map where each key is a service identifier (e.g., `front`, `back`) and each value is an object with optional fields `dir` (default: `.`), `dev_cmd`, `port_kind`, `framework`, and `path`. Missing `dev_cmd` and `port_kind` SHALL be inferred from the project (or service-level) `framework` value via a built-in defaults table. A `.project.yaml` without a `services:` section SHALL behave as in v0.3.0 (no orchestrator features).
 
 #### Scenario: services section enables orchestrator features
-- **GIVEN** a project with `.proj.yaml` containing `services: { front: {} }`
+- **GIVEN** a project with `.project.yaml` containing `services: { front: {} }`
 - **WHEN** `pm run` is invoked with no arguments
 - **THEN** the orchestrator activates and starts the `front` service
 
 #### Scenario: missing services section preserves v0.3.0 behavior
-- **GIVEN** a project whose `.proj.yaml` has no `services:` section
+- **GIVEN** a project whose `.project.yaml` has no `services:` section
 - **WHEN** `pm run -- pnpm dev` is invoked
 - **THEN** the legacy v0.3.0 grammar runs `pnpm dev` with env vars injected
 - **AND** no daemon is spawned
@@ -24,16 +24,16 @@ The `.proj.yaml` file SHALL accept an optional top-level `services:` map where e
 - **AND** `port_kind` resolves to `frontend`
 
 ### Requirement: `pm run` orchestrated service startup
-When invoked in a project whose `.proj.yaml` defines `services:`, `pm run` SHALL ensure shared infrastructure (Postgres, Redis) is running, ensure the project database exists, ensure the daemon is running, register hostname routes, and spawn the configured service commands. With no positional arguments, all services in the project SHALL start; with a service identifier (e.g., `pm run front`), only that service SHALL start.
+When invoked in a project whose `.project.yaml` defines `services:`, `pm run` SHALL ensure shared infrastructure (Postgres, Redis) is running, ensure the project database exists, ensure the daemon is running, register hostname routes, and spawn the configured service commands. With no positional arguments, all services in the project SHALL start; with a service identifier (e.g., `pm run front`), only that service SHALL start.
 
 #### Scenario: pm run with no args starts all services
-- **GIVEN** `.proj.yaml` with services `front` and `back`
+- **GIVEN** `.project.yaml` with services `front` and `back`
 - **WHEN** `pm run` is invoked
 - **THEN** both `front` and `back` are spawned
 - **AND** routes for `front.<project>.<workspace>.localhost` and `back.<project>.<workspace>.localhost` are registered
 
 #### Scenario: pm run with a service identifier
-- **GIVEN** `.proj.yaml` with services `front` and `back`
+- **GIVEN** `.project.yaml` with services `front` and `back`
 - **WHEN** `pm run front` is invoked
 - **THEN** only `front` is spawned
 - **AND** the route for `front.<project>.<workspace>.localhost` is registered
@@ -50,7 +50,7 @@ When invoked in a project whose `.proj.yaml` defines `services:`, `pm run` SHALL
 - **AND** no service-mode logic activates
 
 #### Scenario: token disambiguation prefers service over project
-- **GIVEN** a project whose `.proj.yaml` services include `front`, AND another project named `front` exists in the manifest
+- **GIVEN** a project whose `.project.yaml` services include `front`, AND another project named `front` exists in the manifest
 - **WHEN** `pm run front` is invoked from the first project's directory
 - **THEN** the orchestrator interprets `front` as a service identifier, not a project name
 
@@ -222,12 +222,12 @@ The daemon SHALL listen on `127.0.0.1:7100` by default for the proxy and `127.0.
 For Next.js services, the system SHALL use `pnpm` as the package manager and Turbopack as the dev bundler by convention. When the framework is `nextjs` and the user has not provided a `dev_cmd`, the orchestrator SHALL resolve the dev command to `pnpm next dev --turbopack`. The bundled Next.js config templates (`configs/typescript/nextjs/`) SHALL include a `.npmrc` that enables pnpm-friendly defaults (`engine-strict=true`, `auto-install-peers=true`).
 
 #### Scenario: nextjs default dev command uses pnpm and turbopack
-- **GIVEN** `.proj.yaml` declares `services: { front: { framework: nextjs } }` with no `dev_cmd`
+- **GIVEN** `.project.yaml` declares `services: { front: { framework: nextjs } }` with no `dev_cmd`
 - **WHEN** `pm run front` is invoked
 - **THEN** the spawned command is `pnpm next dev --turbopack`
 
 #### Scenario: user override is respected
-- **GIVEN** `.proj.yaml` declares `services: { front: { framework: nextjs, dev_cmd: "pnpm dev" } }`
+- **GIVEN** `.project.yaml` declares `services: { front: { framework: nextjs, dev_cmd: "pnpm dev" } }`
 - **WHEN** `pm run front` is invoked
 - **THEN** the spawned command is `pnpm dev` (not the framework default)
 
@@ -255,4 +255,3 @@ On the first `pm run` after upgrading to v0.4.0, if a database matching the v0.3
 - **GIVEN** Postgres has no `<workspace>_<project>_local` databases
 - **WHEN** `pm run` is invoked
 - **THEN** no migration notice is emitted
-

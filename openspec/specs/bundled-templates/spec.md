@@ -99,7 +99,7 @@ When two or more selected categories contain identical ignore patterns, the synt
 The system SHALL provide a `pm project gitignore` subcommand that synthesizes `.gitignore` for the current project. With no flags it writes the file in place. With `--diff` it prints a unified diff between the current file and the freshly synthesized result without writing. With `--categories <comma-separated>` the user overrides the default selection.
 
 #### Scenario: default invocation writes the file
-- **GIVEN** the current project's `.proj.yaml` declares `language: rust`, `framework: axum`
+- **GIVEN** the current project's `.project.yaml` declares `language: rust`, `framework: axum`
 - **WHEN** the user runs `pm project gitignore`
 - **THEN** `.gitignore` is updated in place with the marker block containing OS, IDE, Rust, and axum-extra sections
 
@@ -188,4 +188,3 @@ The total embedded gitignore content (sum of `len()` for the 10 default categori
 #### Scenario: build asserts size budget
 - **WHEN** `cargo build` runs and `vendor/github-gitignore/` content totals more than 50 KiB across the embedded category set
 - **THEN** the build fails with a message indicating the overrun
-
