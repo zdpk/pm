@@ -100,7 +100,7 @@ fn default_git_host() -> String {
 }
 
 fn default_base_root() -> String {
-    "~/projects".to_string()
+    "~/ws".to_string()
 }
 
 fn default_workspace() -> String {

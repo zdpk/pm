@@ -17,6 +17,43 @@ declared and observed state is surfaced by reconcile tooling, not hidden.
 
 ## Requirements
 
+### Requirement: Initialization materializes the default workspace root
+
+For a fresh configuration, the system SHALL default `base_root` to `~/ws`,
+persist that value in `config.json`, and create the root together with the
+default manifest workspace directories. The persisted value MAY be edited
+later by the user.
+
+If `~/ws` is already occupied by a path that is not owned by the existing PM
+configuration, initialization SHALL report the collision and ask whether to
+use `~/.ws` instead. On confirmation, the system SHALL persist `~/.ws` as
+`base_root` and materialize the workspace directories there. On rejection,
+initialization SHALL abort before writing new configuration.
+
+#### Scenario: Fresh init creates the default root
+- **GIVEN** neither `~/ws` nor a PM configuration exists
+- **WHEN** the user runs `pm init`
+- **THEN** `config.json` records `base_root = "~/ws"`
+- **AND** `~/ws/default` and `~/ws/.trash` exist as directories
+
+#### Scenario: Existing default root offers the hidden fallback
+- **GIVEN** no PM configuration exists
+- **AND** `~/ws` is already occupied
+- **WHEN** the user runs `pm init`
+- **THEN** PM reports that the default root already exists
+- **AND** asks whether to use `~/.ws`
+
+#### Scenario: User accepts the hidden fallback
+- **GIVEN** `~/ws` is already occupied and `~/.ws` is available
+- **WHEN** the user accepts the fallback prompt
+- **THEN** `config.json` records `base_root = "~/.ws"`
+- **AND** `~/.ws/default` and `~/.ws/.trash` exist as directories
+
+#### Scenario: User rejects the hidden fallback
+- **GIVEN** `~/ws` is already occupied
+- **WHEN** the user rejects the fallback prompt
+- **THEN** initialization aborts without writing new configuration
+
 ### Requirement: Workspace directory location is determined by name
 
 The system SHALL place every workspace directory at `<base_root>/<workspace_name>/`, where `base_root` is the single configurable root from global configuration. Workspaces SHALL NOT override their physical location through manifest fields or any other mechanism.
@@ -62,8 +99,8 @@ The system SHALL require every `Project.dir` value to be a single directory comp
 The system SHALL compute every project's absolute filesystem path as `<base_root>/<workspace_name>/<project.dir>` and SHALL NOT consult any other manifest field or environment variable for location.
 
 #### Scenario: Project path is name composition
-- **WHEN** the system resolves the path of project `web` in workspace `acme` with `base_root = ~/projects`
-- **THEN** it returns `~/projects/acme/web`
+- **WHEN** the system resolves the path of project `web` in workspace `acme` with `base_root = ~/ws`
+- **THEN** it returns `~/ws/acme/web`
 
 #### Scenario: Same manifest yields same paths on every machine
 - **WHEN** two machines load the same manifest with the same `base_root`

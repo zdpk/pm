@@ -220,7 +220,7 @@ pm project update
 ### Initialize a new project (interactive)
 
 ```bash
-cd ~/projects/my-api
+cd ~/ws/default/my-api
 pm project init
 ```
 
@@ -272,8 +272,8 @@ pm project list
 
 ```
 NAME             STACK            PATH                             CONFIG
-my-api           rust/axum        ~/projects/my-api                a3f2b1c
-my-frontend      ts/nextjs        ~/projects/my-frontend           d4e5f6g
+my-api           rust/axum        ~/ws/default/my-api              a3f2b1c
+my-frontend      ts/nextjs        ~/ws/default/my-frontend         d4e5f6g
 ```
 
 ---

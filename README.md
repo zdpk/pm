@@ -81,6 +81,11 @@ pm sync
 pm sw company-api
 ```
 
+On first initialization, PM stores `~/ws` as `base_root` and creates the
+`default` and `.trash` workspace directories beneath it. If `~/ws` is already
+in use, PM offers to use `~/.ws` instead. The selected root is persisted in
+`config.json` and can be changed later.
+
 ## Core Model
 
 PM stores two files:
@@ -108,7 +113,7 @@ The effective local path is computed deterministically as:
 <base_root>/<workspace>/<project.dir>
 ```
 
-The default `base_root` is `~/projects`. It is the *only* configurable axis of
+The default `base_root` is `~/ws`. It is the *only* configurable axis of
 the path layout — workspaces no longer carry their own root override, and
 `project.dir` cannot contain nested paths.
 
@@ -507,7 +512,7 @@ A workspace's path is always:
 <base_root>/<workspace_name>
 ```
 
-The default `base_root` is `~/projects`; change it in `config.json`. There is
+The default `base_root` is `~/ws`; change it in `config.json`. There is
 no per-workspace root override — that was removed in v4 to make manifests
 portable and paths deterministic.
 
