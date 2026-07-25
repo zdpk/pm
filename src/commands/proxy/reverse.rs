@@ -1,9 +1,11 @@
 //! Reverse-proxy HTTP server.
 //!
 //! Reads `routes.json` (lazily, mtime-cached) and forwards incoming requests
-//! to the upstream port matching the `Host` header. Returns 404 for unknown
-//! hostnames.
+//! to the upstream port matching the `Host` header. The reserved
+//! `pm.localhost` host serves the PM applications dashboard; other unknown
+//! hostnames return 404.
 
+use super::dashboard;
 use crate::config::routes_path;
 use crate::routes::{RoutesData, load_routes};
 use anyhow::Result;
@@ -25,6 +27,10 @@ pub async fn serve(port: u16, shutdown: Arc<Notify>) -> Result<()> {
     let listener = TcpListener::bind(&addr).await?;
     let cache = Arc::new(RwLock::new(RoutesCache::new()));
     eprintln!("pm-daemon: proxy listening on http://{addr}");
+    eprintln!(
+        "pm-daemon: apps dashboard on {}",
+        super::dashboard_url(port)
+    );
 
     loop {
         let (stream, _peer) = tokio::select! {
@@ -46,7 +52,7 @@ pub async fn serve(port: u16, shutdown: Arc<Notify>) -> Result<()> {
         tokio::spawn(async move {
             let svc = service_fn(move |req: Request<Incoming>| {
                 let cache = cache.clone();
-                async move { Ok::<_, Infallible>(handle(req, cache).await) }
+                async move { Ok::<_, Infallible>(handle(req, cache, port).await) }
             });
             if let Err(e) = http1::Builder::new()
                 .serve_connection(io, svc)
@@ -64,7 +70,11 @@ pub async fn serve(port: u16, shutdown: Arc<Notify>) -> Result<()> {
     Ok(())
 }
 
-async fn handle(req: Request<Incoming>, cache: Arc<RwLock<RoutesCache>>) -> Response<Full<Bytes>> {
+async fn handle(
+    req: Request<Incoming>,
+    cache: Arc<RwLock<RoutesCache>>,
+    proxy_port: u16,
+) -> Response<Full<Bytes>> {
     let host_header = req
         .headers()
         .get(hyper::header::HOST)
@@ -77,6 +87,15 @@ async fn handle(req: Request<Incoming>, cache: Arc<RwLock<RoutesCache>>) -> Resp
             return error(StatusCode::BAD_REQUEST, "Missing Host header");
         }
     };
+
+    if dashboard::is_dashboard_host(&host) {
+        let routes = {
+            let mut guard = cache.write().await;
+            guard.refresh_if_changed();
+            guard.snapshot()
+        };
+        return dashboard::response(req.method(), req.uri().path(), &routes, proxy_port);
+    }
 
     let upstream_port = {
         let mut guard = cache.write().await;
@@ -188,6 +207,10 @@ impl RoutesCache {
             .find(|e| e.hostname.eq_ignore_ascii_case(hostname))
             .map(|e| e.upstream_port)
     }
+
+    fn snapshot(&self) -> RoutesData {
+        self.data.clone()
+    }
 }
 
 #[cfg(test)]
@@ -202,5 +225,17 @@ mod tests {
     #[test]
     fn strip_port_without_port() {
         assert_eq!(strip_port("api.work.localhost"), "api.work.localhost");
+    }
+
+    #[test]
+    fn dashboard_url_uses_configured_proxy_port() {
+        assert_eq!(
+            super::super::dashboard_url(7100),
+            "http://pm.localhost:7100/"
+        );
+        assert_eq!(
+            super::super::dashboard_url(80),
+            "http://pm.localhost/"
+        );
     }
 }

@@ -16,10 +16,20 @@ pub mod control;
 #[cfg(unix)]
 pub mod daemon;
 #[cfg(unix)]
+mod dashboard;
+#[cfg(unix)]
 mod reverse;
 
 use crate::cli::ProxyCommand;
 use anyhow::Result;
+
+pub fn dashboard_url(proxy_port: u16) -> String {
+    if proxy_port == 80 {
+        "http://pm.localhost/".to_string()
+    } else {
+        format!("http://pm.localhost:{proxy_port}/")
+    }
+}
 
 #[cfg(unix)]
 pub fn run(cmd: ProxyCommand) -> Result<()> {

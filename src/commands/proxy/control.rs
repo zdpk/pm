@@ -251,6 +251,10 @@ pub fn cmd_status() -> Result<()> {
                 );
                 println!("  uptime:       {}s", s.uptime_sec);
                 println!("  proxy:        http://127.0.0.1:{}", s.proxy_port);
+                println!(
+                    "  dashboard:    {}",
+                    super::dashboard_url(s.proxy_port)
+                );
                 println!("  control:      http://127.0.0.1:{}", s.control_port);
                 println!("  routes:       {}", s.routes_count);
                 Ok(())

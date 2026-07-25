@@ -391,6 +391,18 @@ reads the HTTP `Host` header and selects the actual upstream port. This is HTTP
 request routing, not kernel NAT or generic TCP port mapping, so Postgres and
 Redis continue to use their direct shared ports.
 
+Open the read-only applications dashboard to see every service tracked by PM
+across all workspaces and projects:
+
+```text
+http://pm.localhost:7100/
+```
+
+The configured `dev.proxy_port` replaces `7100`. `http://localhost:7100/` and
+`http://127.0.0.1:7100/` serve the same page. The dashboard shows process and
+route health but intentionally exposes no environment values, credentials,
+logs, or lifecycle controls.
+
 ### Docker auto-start
 
 `pm run` auto-creates and starts:

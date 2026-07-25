@@ -366,6 +366,9 @@ fn announce_container_state(name: &str, state: db::ContainerState) {
 }
 
 fn print_summary(workspace: &str, project: &str, services: &[(String, ResolvedService)]) {
+    let proxy_port = load_config()
+        .map(|config| config.dev.proxy_port)
+        .unwrap_or(7100);
     println!();
     println!("{}", "Services running:".bold());
     for (name, _) in services {
@@ -374,9 +377,6 @@ fn print_summary(workspace: &str, project: &str, services: &[(String, ResolvedSe
         } else {
             format!("{name}.{project}.{workspace}.localhost")
         };
-        let proxy_port = load_config()
-            .map(|c| c.dev.proxy_port)
-            .unwrap_or(7100);
         println!(
             "  {} http://{}:{}/",
             "→".cyan(),
@@ -386,7 +386,8 @@ fn print_summary(workspace: &str, project: &str, services: &[(String, ResolvedSe
     }
     println!();
     println!(
-        "Tail logs:  {}\nStop:       {}",
+        "Dashboard:  {}\nTail logs:  {}\nStop:       {}",
+        crate::commands::proxy::dashboard_url(proxy_port),
         "pm logs <service>".dimmed(),
         "pm stop".dimmed()
     );

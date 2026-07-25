@@ -74,6 +74,27 @@ proxy이며 OS NAT나 범용 TCP port mapping이 아닙니다. PostgreSQL, Redis
 [`local-dev-orchestrator` spec](openspec/specs/local-dev-orchestrator/spec.md)을
 따릅니다.
 
+#### 실행 중인 앱 대시보드
+
+공용 proxy는 다음 주소에 PM이 관리하는 모든 앱을 보여주는 read-only HTML
+페이지를 제공합니다.
+
+```text
+http://pm.localhost:<proxy_port>/
+http://localhost:<proxy_port>/       # 편의 alias
+http://127.0.0.1:<proxy_port>/       # 편의 alias
+```
+
+페이지는 `services.json`을 앱 목록의 원본으로 사용하고 `routes.json`에서
+클릭 가능한 URL을 결합합니다. workspace/project/service, PID, upstream
+port, 시작 시각과 선호 URL을 표시하며, canonical hostname과 짧은 alias가
+함께 있어도 서비스는 한 번만 표시합니다. route가 없는 live service도
+목록에서 숨기지 않고 URL을 unavailable로 표시합니다. 비정상 종료 뒤
+registry에 남은 PID는 실행 중으로 계산하지 않고 stopped 상태로 표시합니다.
+
+대시보드는 조회 전용입니다. 앱 시작·중지·재시작, route 변경, shell 실행을
+제공하지 않으며 환경변수, credential, 로그 내용도 노출하지 않습니다.
+
 ## 파일 구조
 
 ```
