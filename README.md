@@ -384,6 +384,13 @@ front.blog.localhost:7100      →  front service of default/blog
 
 `*.localhost` is auto-resolved to `127.0.0.1` by macOS / Linux / Windows DNS clients (RFC 6761), so no `/etc/hosts` edits are needed.
 
+PM chooses each service's upstream port before spawning it, injects that port
+into the service, and records a hostname → port projection in `routes.json`.
+DNS only resolves the hostname to loopback; the single shared PM reverse proxy
+reads the HTTP `Host` header and selects the actual upstream port. This is HTTP
+request routing, not kernel NAT or generic TCP port mapping, so Postgres and
+Redis continue to use their direct shared ports.
+
 ### Docker auto-start
 
 `pm run` auto-creates and starts:

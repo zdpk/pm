@@ -1,7 +1,8 @@
 # local-dev-orchestrator Specification
 
 ## Purpose
-TBD - created by archiving change local-dev-orchestrator. Update Purpose after archive.
+Define the opt-in local development orchestrator: PM-managed service processes,
+dynamic local ports, shared hostname routing, and shared infrastructure.
 ## Requirements
 ### Requirement: `.project.yaml` services schema
 The `.project.yaml` file SHALL accept an optional top-level `services:` map where each key is a service identifier (e.g., `front`, `back`) and each value is an object with optional fields `dir` (default: `.`), `dev_cmd`, `port_kind`, `framework`, and `path`. Missing `dev_cmd` and `port_kind` SHALL be inferred from the project (or service-level) `framework` value via a built-in defaults table. A `.project.yaml` without a `services:` section SHALL behave as in v0.3.0 (no orchestrator features).
@@ -54,8 +55,65 @@ When invoked in a project whose `.project.yaml` defines `services:`, `pm run` SH
 - **WHEN** `pm run front` is invoked from the first project's directory
 - **THEN** the orchestrator interprets `front` as a service identifier, not a project name
 
+### Requirement: Portless-style routing mechanism
+The system SHALL run one reverse-proxy listener per PM configuration directory,
+shared by every application started through orchestrator-mode `pm run`. PM SHALL
+select an available per-service upstream port before spawning the service,
+persist the assignment, and inject that port through the service's configured
+port-kind environment variable. The service application or its configuration
+SHALL consume that variable and bind to the assigned port. PM executes
+`dev_cmd` directly without shell-variable interpolation, so a framework that
+does not natively consume the injected variable MUST be configured by the
+project to do so. PM SHALL NOT rely on discovering a port chosen independently
+by the child process.
+
+After a successful spawn, PM SHALL record the process in `services.json` and
+project it into one or more hostname-to-port entries in `routes.json`. The
+daemon SHALL accept each browser request on `dev.proxy_port`, remove the port
+suffix from the HTTP `Host` header, look up the hostname in the runtime route
+table, and forward the HTTP request to `127.0.0.1:<upstream_port>`.
+
+This is application-layer HTTP reverse proxying, not DNS-based port assignment,
+kernel NAT, or a general-purpose TCP/UDP port mapper. TLS and HTTP protocol
+upgrade behavior are separate concerns. PostgreSQL, Redis, and other raw TCP
+services MUST NOT be dispatched through this hostname route table; they SHALL
+continue to use their shared/direct ports and PM-injected connection settings.
+
+#### Scenario: PM chooses the port before starting an application
+- **GIVEN** service `back` has no existing port assignment
+- **WHEN** `pm run back` starts the service
+- **THEN** PM selects a free port from the service's configured port-kind range
+- **AND** the selected port is persisted before it is exposed as a route
+- **AND** the child receives the selected port through its configured environment variable
+- **AND** the service application or project configuration uses that variable as its listen port
+- **AND** PM does not scan the child after startup to guess which port it chose
+
+#### Scenario: all PM applications share one proxy
+- **GIVEN** `front` and `back` belong to different projects and use different upstream ports
+- **WHEN** both are started with `pm run`
+- **THEN** both hostname routes point at the same listener on `dev.proxy_port`
+- **AND** PM does not start one reverse proxy per service or per project
+
+#### Scenario: HTTP Host selects the upstream
+- **GIVEN** `routes.json` maps `back.api.work.localhost` to `127.0.0.1:26918`
+- **WHEN** the shared proxy receives an HTTP request with `Host: back.api.work.localhost:7100`
+- **THEN** it forwards that request to `127.0.0.1:26918`
+- **AND** the browser-visible hostname remains `back.api.work.localhost`
+
+#### Scenario: raw TCP is not hostname-routed
+- **GIVEN** shared PostgreSQL listens on `127.0.0.1:5432`
+- **WHEN** a PM-managed web application needs a database connection
+- **THEN** PM injects the direct PostgreSQL connection settings
+- **AND** PM does not add PostgreSQL to the HTTP hostname route table
+
 ### Requirement: `*.localhost` hostname routing
 The system SHALL register hostname routes of the form `<service>.<project>.<workspace>.localhost` for each running service and route HTTP requests on the daemon's listening port to the per-service local port based on the `Host` header. When the workspace is `default`, the system SHALL also register the shorter alias `<service>.<project>.localhost`.
+
+The `.localhost` suffix SHALL be used because compliant resolvers map it to the
+local loopback host without an `/etc/hosts` entry. That resolution supplies only
+an IP address; it does not select an upstream application port. Clients still
+connect to the shared proxy's `dev.proxy_port`, and the proxy performs the
+hostname-to-port lookup.
 
 #### Scenario: subdomain route is registered
 - **GIVEN** the workspace is `work`, project is `api`, and service is `back` listening on `127.0.0.1:26918`
@@ -76,6 +134,12 @@ The system SHALL register hostname routes of the form `<service>.<project>.<work
 - **GIVEN** the daemon is running with no route for `unknown.localhost`
 - **WHEN** an HTTP request arrives with `Host: unknown.localhost:7100`
 - **THEN** the daemon responds with HTTP 404
+
+#### Scenario: localhost DNS does not replace the proxy
+- **GIVEN** `front.api.work.localhost` resolves to a loopback address
+- **WHEN** a browser opens `http://front.api.work.localhost:7100`
+- **THEN** the browser connects to the shared proxy on port 7100
+- **AND** the proxy, rather than DNS, chooses the service's upstream port
 
 ### Requirement: Daemon auto-spawn (gpg-agent pattern)
 On any orchestrator-mode `pm run` invocation, the system SHALL detect whether the daemon is alive (via PID file + control plane health check) and spawn it as a detached background process if not. The daemon SHALL share the same `pm` binary, entered via the hidden `pm __daemon` subcommand. The CLI invocation that triggered the spawn SHALL exit normally after registering its routes; the daemon SHALL persist independently.

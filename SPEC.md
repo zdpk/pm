@@ -27,6 +27,53 @@ PM은 **git 프로젝트와 디렉토리 관리**에만 집중하는 최소한�
 
 이러한 도구들은 사용자 선택에 맡기며, PM은 프로젝트 관리 본연의 기능에 충실합니다.
 
+### 선택적 로컬 개발 오케스트레이션
+
+`.project.yaml`에 `services:`가 선언된 프로젝트의 `pm run`은 선택적으로
+로컬 앱 실행과 hostname 라우팅까지 관리합니다. 이는 Vercel Portless를
+호출하거나 앱마다 프록시를 띄우는 구조가 아니라, Portless와 같은 원리를
+PM의 공용 daemon에 직접 적용한 기능입니다.
+
+#### hostname이 포트를 대신하는 원리
+
+PM은 실행된 앱이 선택한 포트를 나중에 탐지하지 않습니다. 먼저 사용 가능한
+upstream 포트를 할당하고, service의 `port_kind`에 대응하는 환경변수
+(`FRONTEND_PORT`, `APP_PORT` 등)로 앱에 주입한 다음 해당 포트를 hostname
+route에 등록합니다. 앱 또는 프로젝트 설정은 주입된 변수를 실제 listen
+port로 사용해야 합니다. PM은 `dev_cmd`를 shell interpolation 없이 직접
+실행하므로, 해당 변수를 기본 지원하지 않는 framework는 프로젝트 쪽
+설정에서 변수를 읽도록 구성해야 합니다.
+
+```text
+pm run
+  1. 서비스용 빈 포트 선택 (예: 26918)
+  2. 앱에 포트를 주입하고 127.0.0.1:26918에서 실행
+  3. services.json에 PM이 관리하는 PID와 포트 기록
+  4. routes.json에 back.api.work.localhost -> 127.0.0.1:26918 기록
+  5. 사용자별 공용 reverse proxy가 없으면 자동 실행
+
+browser
+  http://back.api.work.localhost:7100
+      -> DNS가 *.localhost를 loopback IP로 해석
+      -> 공용 proxy가 HTTP Host header로 route 조회
+      -> 127.0.0.1:26918로 요청 전달
+```
+
+DNS는 hostname을 loopback IP로 해석할 뿐 포트를 선택하지 않습니다.
+실제 hostname-to-port 선택은 `dev.proxy_port`에서 실행되는 공용 HTTP
+reverse proxy가 담당합니다. 따라서 기본 포트가 7100이면 URL에도 `:7100`이
+필요합니다. 이후 proxy를 80/443에 설치하는 기능이 추가될 경우에만 주소에서
+포트를 생략할 수 있습니다.
+
+이 라우팅은 HTTP `Host` header를 사용하는 application-layer reverse
+proxy이며 OS NAT나 범용 TCP port mapping이 아닙니다. PostgreSQL, Redis와
+같은 raw TCP 서비스는 hostname으로 분기하지 않고 공유 포트, database
+이름, key prefix 및 주입된 connection URL로 분리합니다.
+
+상세한 normative requirement와 scenario는
+[`local-dev-orchestrator` spec](openspec/specs/local-dev-orchestrator/spec.md)을
+따릅니다.
+
 ## 파일 구조
 
 ```
