@@ -82,6 +82,10 @@ pub enum Commands {
         #[arg(short, long)]
         path: bool,
 
+        /// Show each project's live origin URL instead of its local path
+        #[arg(long, conflicts_with = "path")]
+        remote: bool,
+
         /// Skip git status
         #[arg(long)]
         no_status: bool,
@@ -624,4 +628,36 @@ pub enum FilterType {
     NonGit,
     /// Invalid paths
     Orphan,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_remote_flag_parses_for_command_and_alias() {
+        let cases: &[(&[&str], bool)] = &[
+            (&["pm", "list", "--remote"], false),
+            (&["pm", "ls", "-a", "--remote"], true),
+        ];
+        for (args, expected_all) in cases {
+            let cli =
+                Cli::try_parse_from(args.iter().copied()).expect("list remote flags should parse");
+            match cli.command {
+                Commands::List { all, remote, .. } => {
+                    assert!(remote);
+                    assert_eq!(all, *expected_all);
+                }
+                _ => panic!("expected list command"),
+            }
+        }
+    }
+
+    #[test]
+    fn list_remote_conflicts_with_full_path() {
+        let error = Cli::try_parse_from(["pm", "ls", "--remote", "--path"])
+            .err()
+            .expect("flags should conflict");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
 }

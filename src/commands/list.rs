@@ -1,9 +1,37 @@
 use crate::cli::{FilterType, SortField};
-use crate::git::{get_status, is_git_repo};
+use crate::git::{get_remote_url, get_status, is_git_repo, redact_remote_url};
+use crate::path::expand_path;
 use crate::state::{load_state, project_path, project_path_display};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use std::path::Path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteState {
+    Current,
+    Unrecorded,
+    Changed,
+    Saved,
+    Missing,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct RemoteValue {
+    url: Option<String>,
+    state: RemoteState,
+}
+
+pub struct ListOptions {
+    pub all: bool,
+    pub tags_filter: Option<String>,
+    pub show_path: bool,
+    pub show_remote: bool,
+    pub no_status: bool,
+    pub sort: SortField,
+    pub reverse: bool,
+    pub filter: Option<FilterType>,
+}
 
 fn format_relative_time(dt: &DateTime<Utc>) -> String {
     let now = Utc::now();
@@ -36,15 +64,17 @@ fn format_relative_time(dt: &DateTime<Utc>) -> String {
     }
 }
 
-pub fn run(
-    all: bool,
-    tags_filter: Option<String>,
-    show_path: bool,
-    no_status: bool,
-    sort: SortField,
-    reverse: bool,
-    filter: Option<FilterType>,
-) -> Result<()> {
+pub fn run(options: ListOptions) -> Result<()> {
+    let ListOptions {
+        all,
+        tags_filter,
+        show_path,
+        show_remote,
+        no_status,
+        sort,
+        reverse,
+        filter,
+    } = options;
     let (config, manifest) = load_state()?;
     let workspace_names: Vec<&str> = if all {
         manifest
@@ -144,6 +174,7 @@ pub fn run(
         let branch_width = 12;
         let status_width = 16;
         let time_width = 8;
+        let tail_header = if show_remote { "REMOTE" } else { "PATH" };
 
         println!(
             "{}",
@@ -153,7 +184,7 @@ pub fn run(
                 "BRANCH",
                 "STATUS",
                 "LAST",
-                "PATH",
+                tail_header,
                 name_w = name_width,
                 branch_w = branch_width,
                 status_w = status_width,
@@ -164,11 +195,24 @@ pub fn run(
 
         for project in projects {
             let path = project_path(&config, &manifest, project)?;
-            let collapsed_path = project_path_display(&config, &manifest, project)?;
-            let path_display = if show_path {
-                path.display().to_string()
+            let tail_display = if show_remote {
+                let remote_path = project
+                    .link
+                    .as_deref()
+                    .map(expand_path)
+                    .unwrap_or_else(|| path.clone());
+                format_remote_value(resolve_remote_value(
+                    &remote_path,
+                    project.remote.as_deref(),
+                ))
             } else {
-                collapsed_path
+                let collapsed_path = project_path_display(&config, &manifest, project)?;
+                let path_display = if show_path {
+                    path.display().to_string()
+                } else {
+                    collapsed_path
+                };
+                path_display.dimmed().to_string()
             };
 
             let (branch, status_text, status_color) = if !path.exists() {
@@ -237,7 +281,7 @@ pub fn run(
                 branch,
                 status_colored,
                 time_ago,
-                path_display.dimmed(),
+                tail_display,
                 tags_suffix.dimmed(),
                 name_w = name_width,
                 branch_w = branch_width,
@@ -249,4 +293,163 @@ pub fn run(
     }
 
     Ok(())
+}
+
+fn resolve_remote_value(path: &Path, saved: Option<&str>) -> RemoteValue {
+    match get_remote_url(&path.display().to_string()).filter(|url| !url.trim().is_empty()) {
+        Some(actual) => {
+            let state = match saved {
+                None => RemoteState::Unrecorded,
+                Some(saved) if actual == saved => RemoteState::Current,
+                Some(_) => RemoteState::Changed,
+            };
+            RemoteValue {
+                url: Some(actual),
+                state,
+            }
+        }
+        None => match saved {
+            Some(saved) => RemoteValue {
+                url: Some(saved.to_string()),
+                state: RemoteState::Saved,
+            },
+            None => RemoteValue {
+                url: None,
+                state: RemoteState::Missing,
+            },
+        },
+    }
+}
+
+fn format_remote_value(remote: RemoteValue) -> String {
+    let Some(url) = remote.url else {
+        return "-".dimmed().to_string();
+    };
+    let url = redact_remote_url(&url);
+    match remote.state {
+        RemoteState::Current => url,
+        RemoteState::Unrecorded => {
+            format!("{} {}", url, "(unrecorded)".yellow())
+        }
+        RemoteState::Changed => format!("{} {}", url, "(changed)".yellow()),
+        RemoteState::Saved => format!("{} {}", url, "(saved)".dimmed()),
+        RemoteState::Missing => unreachable!("missing remote has no URL"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Project;
+    use crate::state::{load_state, save_state};
+    use crate::test_support::{TestEnv, init_git_repo};
+    use git2::Repository;
+
+    fn repo_with_origin(path: &Path, remote: &str) {
+        let repo = Repository::init(path).expect("initialize git repository");
+        repo.remote("origin", remote).expect("set origin");
+    }
+
+    #[test]
+    fn live_origin_takes_precedence_over_saved_remote() {
+        let temp = tempfile::tempdir().unwrap();
+        repo_with_origin(temp.path(), "git@github.com:acme/current.git");
+
+        let value = resolve_remote_value(temp.path(), Some("https://github.com/acme/previous.git"));
+
+        assert_eq!(
+            value,
+            RemoteValue {
+                url: Some("git@github.com:acme/current.git".to_string()),
+                state: RemoteState::Changed,
+            }
+        );
+    }
+
+    #[test]
+    fn exact_live_origin_is_current() {
+        let temp = tempfile::tempdir().unwrap();
+        repo_with_origin(temp.path(), "https://github.com/acme/widgets.git");
+
+        let value = resolve_remote_value(temp.path(), Some("https://github.com/acme/widgets.git"));
+
+        assert_eq!(value.state, RemoteState::Current);
+    }
+
+    #[test]
+    fn transport_change_is_reported_as_changed() {
+        let temp = tempfile::tempdir().unwrap();
+        repo_with_origin(temp.path(), "git@github.com:acme/widgets.git");
+
+        let value = resolve_remote_value(temp.path(), Some("https://github.com/acme/widgets.git"));
+
+        assert_eq!(value.state, RemoteState::Changed);
+    }
+
+    #[test]
+    fn saved_remote_is_fallback_when_live_origin_is_unavailable() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing");
+
+        let value = resolve_remote_value(&missing, Some("https://github.com/acme/widgets.git"));
+
+        assert_eq!(
+            value,
+            RemoteValue {
+                url: Some("https://github.com/acme/widgets.git".to_string()),
+                state: RemoteState::Saved,
+            }
+        );
+    }
+
+    #[test]
+    fn missing_live_and_saved_remote_displays_dash() {
+        let temp = tempfile::tempdir().unwrap();
+        let value = resolve_remote_value(&temp.path().join("missing"), None);
+
+        assert_eq!(value.state, RemoteState::Missing);
+        assert_eq!(format_remote_value(value), "-".dimmed().to_string());
+    }
+
+    #[test]
+    fn remote_listing_does_not_change_manifest_or_git_origin() {
+        let env = TestEnv::new();
+        let path = env.project_dir("default", "widgets");
+        init_git_repo(&path);
+        repo_with_origin(&path, "git@github.com:acme/widgets.git");
+
+        let (config, mut manifest) = load_state().unwrap();
+        let mut project = Project::new(
+            "widgets".to_string(),
+            "default".to_string(),
+            "widgets".to_string(),
+            "widgets".to_string(),
+        );
+        project.remote = Some("https://github.com/acme/old.git".to_string());
+        manifest.projects.push(project);
+        save_state(&config, &manifest).unwrap();
+
+        let manifest_path = env.config_dir.join("manifest.json");
+        let before_manifest = std::fs::read(&manifest_path).unwrap();
+        let before_origin = get_remote_url(&path.display().to_string());
+
+        run(ListOptions {
+            all: false,
+            tags_filter: None,
+            show_path: false,
+            show_remote: true,
+            no_status: true,
+            sort: SortField::Accessed,
+            reverse: false,
+            filter: None,
+        })
+        .expect("remote listing should succeed");
+
+        assert_eq!(std::fs::read(manifest_path).unwrap(), before_manifest);
+        assert_eq!(
+            get_remote_url(&path.display().to_string()),
+            before_origin,
+            "listing must not modify origin"
+        );
+    }
 }

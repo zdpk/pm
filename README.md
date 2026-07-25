@@ -142,7 +142,7 @@ pm() {
 | `pm init` | | Initialize PM configuration |
 | `pm add <url\|path>` | | Add a project: clone a git URL, move a local directory, or create the directory when the supplied path is missing |
 | `pm link <path>` | | Link an existing external git repo into the convention path via a symlink, without moving it (Unix-only) |
-| `pm list` | `ls` | List projects |
+| `pm list` | `ls` | List projects (`--remote` shows each local repo's live `origin`) |
 | `pm switch <project>` | `sw` | Switch to project directory, optionally restoring it |
 | `pm path <project>` | | Print project path without restoring |
 | `pm remove <project>` | `rm` | Unregister a project |
@@ -599,6 +599,22 @@ is not declared in the manifest (run `pm ws new <name>` first), or whose name
 collides with an existing project. Prune appends each removed project to
 `history.json` as `Unregistered` so `pm history` can surface it.
 
+### Remote metadata
+
+The local repository's `origin` is authoritative while its checkout exists.
+The manifest's `remote` is a portable recovery URL used when `pm` needs to
+restore a missing project.
+
+```bash
+pm ls --remote                 # live origins in the current workspace
+pm ls --all --remote           # live origins in every workspace
+```
+
+Remote listing reads each registered local repository directly and never
+fetches the network or changes Git/manifest state. A live `origin` takes
+precedence; when the checkout or origin is unavailable, the output retains the
+cached value and marks it `(saved)`.
+
 ## Linked Projects
 
 Sometimes a git repo must stay where it already lives — a shared checkout, a
@@ -651,6 +667,8 @@ exists, pointing you at `pm sync`.
 ```bash
 pm ls
 pm ls --all
+pm ls --remote
+pm ls --all --remote
 pm ls --tags rust,cli
 pm ls --filter orphan
 pm check

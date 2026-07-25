@@ -7,7 +7,8 @@ state) and the filesystem (observed state) under the strict path
 convention. The deterministic mapping in `path-convention` makes the
 universe of "where a project should live" enumerable; this capability
 specifies the read-only diagnostics (`pm check`) and the opt-in mutating
-reconciler (`pm sync --adopt`, `pm sync --prune`) that act on it.
+reconciler (`pm sync --adopt`, `pm sync --prune`) that act on it. It also
+defines how live local Git origins are inspected (`pm list --remote`).
 
 All mutating actions are explicit: adopt and prune require per-item
 confirmation or `--yes`, and non-interactive runs without `--yes` refuse
@@ -114,6 +115,35 @@ When invoked without `--adopt` or `--prune`, `pm sync` SHALL behave exactly as b
 - **THEN** missing entries with a remote are cloned as before
 - **AND** untracked directories are neither adopted nor reported as errors
 - **AND** orphan entries (with or without remote) are not removed
+
+### Requirement: Remote listing reads live local origins without mutation
+
+`pm list --remote` SHALL replace the path column with each registered
+project's remote state. The command SHALL read the local repository's `origin`
+on every invocation without fetching the network. A live origin SHALL take
+precedence over the manifest's cached `remote`; when a live origin is
+unavailable, a cached value SHALL be retained in the output and marked as
+saved. The command SHALL NOT modify the manifest, filesystem, or Git config.
+`pm list --all --remote` SHALL apply the same behavior across all
+non-system workspaces.
+
+#### Scenario: Live origin takes precedence over cached metadata
+- **GIVEN** a registered project whose local origin is `git@example.com:acme/web.git` and whose manifest remote is `https://example.com/acme/old.git`
+- **WHEN** the user runs `pm list --remote`
+- **THEN** the output shows the live origin and marks it as changed
+- **AND** neither remote is modified
+
+#### Scenario: Cached remote is used when the checkout is unavailable
+- **GIVEN** a registered project with cached remote `https://example.com/acme/web.git` whose local path is missing
+- **WHEN** the user runs `pm list --remote`
+- **THEN** the cached remote is shown with a saved annotation
+- **AND** the manifest remains unchanged
+
+#### Scenario: Linked project origin comes from its recorded target
+- **GIVEN** a linked project whose recorded target and convention symlink resolve to different repositories
+- **WHEN** the user runs `pm list --remote`
+- **THEN** the origin is read from the recorded link target
+- **AND** the drifted convention symlink is not trusted as the remote source
 
 ### Requirement: Reconcile recognizes linked projects
 
