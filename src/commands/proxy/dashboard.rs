@@ -1,12 +1,14 @@
 //! Read-only HTML dashboard for services managed by the PM orchestrator.
 //!
-//! `services.json` is the process registry. `routes.json` is joined only to
-//! find a browser URL for each service, so canonical and short aliases never
-//! create duplicate dashboard entries.
+//! `services.json` is the process registry. `ports.json` classifies each
+//! service, and `routes.json` is joined only to find a browser URL, so canonical
+//! and short aliases never create duplicate dashboard entries.
 
 use crate::foreground_processes::{self, ForegroundProcessesData};
+use crate::models::{PortKind, PortsData};
 use crate::routes::{RouteEntry, RoutesData};
 use crate::services::{self, ServicesData};
+use anyhow::Context;
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::header::{ALLOW, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
@@ -88,6 +90,7 @@ struct DashboardApp {
     workspace: String,
     project: String,
     service: String,
+    kind: Option<PortKind>,
     mode: ProcessMode,
     pid: u32,
     upstream_port: Option<u16>,
@@ -103,6 +106,14 @@ struct DashboardSnapshot {
     background_count: usize,
     foreground_count: usize,
     attention_count: usize,
+}
+
+struct DashboardSources<'a> {
+    routes: &'a RoutesData,
+    services: &'a ServicesData,
+    ports: &'a PortsData,
+    foreground: &'a ForegroundProcessesData,
+    tailnet_links: &'a HashMap<u16, Vec<String>>,
 }
 
 pub(super) fn is_dashboard_host(host: &str, configured_hosts: &[String]) -> bool {
@@ -149,6 +160,13 @@ pub(super) async fn response(
             );
         }
     };
+    let ports = match load_ports_read_only() {
+        Ok(data) => data,
+        Err(error) => {
+            eprintln!("pm-daemon: dashboard ports load error: {error}");
+            PortsData::default()
+        }
+    };
 
     let foreground = match foreground_processes::load() {
         Ok(data) => data,
@@ -161,10 +179,13 @@ pub(super) async fn response(
         .await
         .unwrap_or_default();
     let snapshot = build_snapshot_with_extras(
-        routes,
-        &services,
-        &foreground,
-        &tailnet_links,
+        DashboardSources {
+            routes,
+            services: &services,
+            ports: &ports,
+            foreground: &foreground,
+            tailnet_links: &tailnet_links,
+        },
         proxy_port,
         services::pid_alive,
         foreground_processes::is_running,
@@ -249,11 +270,17 @@ fn build_snapshot<F>(
 where
     F: FnMut(u32) -> bool,
 {
+    let ports = PortsData::default();
+    let foreground = ForegroundProcessesData::default();
+    let tailnet_links = HashMap::new();
     build_snapshot_with_extras(
-        routes,
-        services,
-        &ForegroundProcessesData::default(),
-        &HashMap::new(),
+        DashboardSources {
+            routes,
+            services,
+            ports: &ports,
+            foreground: &foreground,
+            tailnet_links: &tailnet_links,
+        },
         proxy_port,
         is_alive,
         |_| false,
@@ -261,10 +288,7 @@ where
 }
 
 fn build_snapshot_with_extras<F, G>(
-    routes: &RoutesData,
-    services: &ServicesData,
-    foreground: &ForegroundProcessesData,
-    tailnet_links: &HashMap<u16, Vec<String>>,
+    sources: DashboardSources<'_>,
     proxy_port: u16,
     mut is_alive: F,
     mut is_foreground_alive: G,
@@ -273,6 +297,13 @@ where
     F: FnMut(u32) -> bool,
     G: FnMut(&foreground_processes::ForegroundProcessState) -> bool,
 {
+    let DashboardSources {
+        routes,
+        services,
+        ports,
+        foreground,
+        tailnet_links,
+    } = sources;
     let mut apps = Vec::new();
 
     for (project_key, project_services) in &services.projects {
@@ -316,6 +347,7 @@ where
                 workspace: workspace.clone(),
                 project: project.clone(),
                 service: service.clone(),
+                kind: service_kind(ports, project_key, service, state.port),
                 mode: ProcessMode::Background,
                 pid: state.pid,
                 upstream_port: Some(state.port),
@@ -337,6 +369,7 @@ where
             workspace: process.workspace.clone(),
             project: process.project.clone(),
             service: process.program.clone(),
+            kind: None,
             mode: ProcessMode::Foreground,
             pid: process.pid,
             upstream_port: None,
@@ -389,6 +422,28 @@ where
         foreground_count,
         attention_count,
     }
+}
+
+fn load_ports_read_only() -> anyhow::Result<PortsData> {
+    let path = crate::config::ports_path();
+    let content =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    serde_json::from_str(&content).with_context(|| format!("parsing {}", path.display()))
+}
+
+fn service_kind(
+    ports: &PortsData,
+    project_key: &str,
+    service_key: &str,
+    runtime_port: u16,
+) -> Option<PortKind> {
+    ports
+        .projects
+        .get(project_key)?
+        .services
+        .get(service_key)
+        .filter(|allocation| allocation.port == runtime_port)
+        .map(|allocation| allocation.kind)
 }
 
 fn preferred_route<'a>(
@@ -510,10 +565,18 @@ fn query_tailnet_links() -> HashMap<u16, Vec<String>> {
 fn tailscale_status(program: &str) -> Option<TailscaleServeStatus> {
     let mut child = Command::new(program)
         .args(["serve", "status", "--json"])
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    let mut stdout = child.stdout.take()?;
+    // Drain concurrently: some Tailscale CLI builds do not exit promptly while
+    // their piped status output is waiting for the parent to read it.
+    let output = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
 
     let started_at = Instant::now();
     let status = loop {
@@ -525,21 +588,23 @@ fn tailscale_status(program: &str) -> Option<TailscaleServeStatus> {
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = output.join();
                 return None;
             }
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = output.join();
                 return None;
             }
         }
     };
     if !status.success() {
+        let _ = output.join();
         return None;
     }
 
-    let mut stdout = Vec::new();
-    child.stdout.take()?.read_to_end(&mut stdout).ok()?;
+    let stdout = output.join().ok()?.ok()?;
     serde_json::from_slice(&stdout).ok()
 }
 
@@ -590,21 +655,55 @@ fn loopback_proxy_port(proxy: &str) -> Option<u16> {
 
 fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     let _ = proxy_port;
-    let mut cards = String::new();
+    let mut frontend_cards = String::new();
+    let mut supporting_rows = String::new();
+    let mut frontend_count = 0;
+    let mut supporting_count = 0;
 
-    if snapshot.apps.is_empty() {
-        cards.push_str(
-            r#"<section class="empty">
+    for app in &snapshot.apps {
+        if app.kind == Some(PortKind::Frontend) {
+            frontend_count += 1;
+            render_frontend_card(&mut frontend_cards, app);
+        } else {
+            supporting_count += 1;
+            render_supporting_process(&mut supporting_rows, app);
+        }
+    }
+
+    let frontend_content = if frontend_count > 0 {
+        format!(r#"<div class="grid">{frontend_cards}</div>"#)
+    } else if snapshot.apps.is_empty() {
+        r#"<section class="empty">
   <div class="empty-icon">0</div>
   <h2>No PM processes are running</h2>
   <p>Start a configured service or <code>pm run -- &lt;command&gt;</code> and it will appear here.</p>
-</section>"#,
-        );
+</section>"#
+            .to_string()
     } else {
-        for app in &snapshot.apps {
-            render_app(&mut cards, app);
-        }
-    }
+        r#"<section class="empty compact">
+  <div class="empty-icon">0</div>
+  <h2>No frontend applications are running</h2>
+  <p>Backend and other PM processes are listed below.</p>
+</section>"#
+            .to_string()
+    };
+
+    let supporting_section = if supporting_count == 0 {
+        String::new()
+    } else {
+        format!(
+            r#"<section class="supporting" aria-labelledby="supporting-title">
+      <div class="section-heading supporting-heading">
+        <div>
+          <p class="section-kicker">Non-navigable</p>
+          <h2 id="supporting-title">Backend &amp; other processes</h2>
+        </div>
+        <span>{supporting_count} processes</span>
+      </div>
+      <ul class="process-list">{supporting_rows}</ul>
+    </section>"#
+        )
+    };
 
     format!(
         r#"<!doctype html>
@@ -625,12 +724,20 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     .summary {{ display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }}
     .summary span {{ border: 1px solid #27272a; border-radius: 999px; padding: 8px 12px; color: #a1a1aa; background: #18181bcc; font-size: 13px; }}
     .summary strong {{ color: #fafafa; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }}
-    .card {{ min-width: 0; border: 1px solid #27272a; border-radius: 18px; padding: 20px; background: #121216e6; box-shadow: 0 18px 50px #0005; }}
+    .section-heading {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 0 0 14px; }}
+    .section-heading h2 {{ margin: 0; font-size: 19px; letter-spacing: -.02em; }}
+    .section-heading > span, .section-heading p {{ margin: 0; color: #71717a; font-size: 12px; }}
+    .section-kicker {{ margin: 0 0 4px !important; color: #60a5fa !important; font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace !important; letter-spacing: .1em; text-transform: uppercase; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; }}
+    .card {{ display: block; min-width: 0; border: 1px solid #27272a; border-radius: 18px; padding: 20px; color: inherit; background: #121216e6; box-shadow: 0 18px 50px #0005; text-decoration: none; }}
+    .card-link {{ cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }}
+    .card-link:hover {{ border-color: #3b82f6; box-shadow: 0 20px 54px #0007, 0 0 0 1px #3b82f633; transform: translateY(-2px); }}
+    .card-link:focus-visible {{ outline: 3px solid #60a5fa; outline-offset: 3px; border-color: #60a5fa; }}
+    .card-unavailable {{ border-style: dashed; }}
     .card-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }}
     .identity {{ min-width: 0; }}
     .project {{ overflow: hidden; color: #a1a1aa; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }}
-    h2 {{ margin: 5px 0 0; font-size: 23px; letter-spacing: -.025em; }}
+    h3 {{ margin: 5px 0 0; font-size: 23px; letter-spacing: -.025em; }}
     .badges {{ display: flex; align-items: flex-end; gap: 6px; flex-direction: column; }}
     .status {{ flex: 0 0 auto; border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 750; }}
     .status.running {{ color: #86efac; background: #14532d66; }}
@@ -642,19 +749,32 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     .url {{ display: flex; min-width: 0; align-items: center; gap: 8px; overflow: hidden; color: #93c5fd; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; text-decoration: none; }}
     .link-kind {{ flex: 0 0 auto; border: 1px solid #3f3f46; border-radius: 5px; padding: 1px 5px; color: #a1a1aa; font: 700 9px/1.5 ui-sans-serif, sans-serif; text-transform: uppercase; letter-spacing: .05em; }}
     .link-value {{ overflow: hidden; text-overflow: ellipsis; }}
-    a.url:hover {{ color: #dbeafe; text-decoration: underline; }}
+    .card-link:hover .url {{ color: #dbeafe; }}
     .url.unavailable {{ color: #71717a; }}
     dl {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }}
     dt {{ color: #71717a; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }}
     dd {{ overflow: hidden; margin: 4px 0 0; color: #d4d4d8; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }}
+    .card-action {{ display: flex; align-items: center; justify-content: space-between; margin-top: 18px; padding-top: 15px; border-top: 1px solid #27272a; color: #bfdbfe; font-size: 12px; font-weight: 700; }}
+    .card-action svg {{ width: 15px; height: 15px; }}
+    .card-link:hover .card-action {{ color: #fff; }}
+    .supporting {{ margin-top: 40px; }}
+    .supporting-heading {{ padding: 0 2px; }}
+    .process-list {{ display: grid; margin: 0; padding: 0; border-top: 1px solid #27272a; list-style: none; }}
+    .process-row {{ display: grid; min-width: 0; grid-template-columns: minmax(180px, 1fr) auto minmax(300px, 1.25fr); align-items: center; gap: 20px; padding: 16px 2px; border-bottom: 1px solid #27272a; }}
+    .process-row h3 {{ font-size: 16px; }}
+    .process-badges {{ display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }}
+    .kind {{ border: 1px solid #3f3f46; border-radius: 999px; padding: 4px 8px; color: #a1a1aa; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }}
+    .process-row dl {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
     .empty {{ border: 1px dashed #3f3f46; border-radius: 20px; padding: 64px 24px; color: #a1a1aa; text-align: center; background: #12121699; }}
+    .empty.compact {{ padding: 42px 24px; }}
     .empty-icon {{ display: grid; width: 48px; height: 48px; margin: 0 auto 18px; place-items: center; border: 1px solid #3f3f46; border-radius: 14px; color: #71717a; font: 700 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
     .empty h2 {{ color: #f4f4f5; }}
     .empty p {{ margin-bottom: 0; }}
     code {{ border: 1px solid #3f3f46; border-radius: 6px; padding: 2px 6px; color: #dbeafe; background: #18181b; }}
     footer {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 24px; color: #71717a; font-size: 12px; }}
     footer a {{ color: #a1a1aa; }}
-    @media (max-width: 640px) {{ main {{ padding-top: 36px; }} header {{ align-items: flex-start; flex-direction: column; }} .summary {{ justify-content: flex-start; }} dl {{ grid-template-columns: 1fr 1fr; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .card-link {{ transition: none; }} .card-link:hover {{ transform: none; }} }}
+    @media (max-width: 760px) {{ main {{ padding-top: 36px; }} header, .section-heading {{ align-items: flex-start; flex-direction: column; }} .summary {{ justify-content: flex-start; }} dl, .process-row dl {{ grid-template-columns: 1fr 1fr; }} .process-row {{ grid-template-columns: 1fr; gap: 12px; }} .process-row dl > div:last-child {{ grid-column: 1 / -1; }} .process-badges {{ justify-content: flex-start; }} }}
   </style>
 </head>
 <body>
@@ -670,7 +790,17 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
         <span><strong>{attention}</strong> need attention</span>
       </div>
     </header>
-    <section class="grid">{cards}</section>
+    <section class="frontend-section" aria-labelledby="frontends-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Destinations</p>
+          <h2 id="frontends-title">Frontend applications</h2>
+        </div>
+        <span>Click a card to open the app</span>
+      </div>
+      {frontend_content}
+    </section>
+    {supporting_section}
     <footer>
       <span>Read-only · refreshes every 5 seconds</span>
       <a href="/">Refresh now</a>
@@ -684,21 +814,43 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     )
 }
 
-fn render_app(output: &mut String, app: &DashboardApp) {
+fn preferred_navigation(app: &DashboardApp) -> Option<(&'static str, &str)> {
+    app.tailnet_urls
+        .first()
+        .map(|url| ("Tailnet", url.as_str()))
+        .or_else(|| app.url.as_deref().map(|url| ("Local", url)))
+}
+
+fn render_frontend_card(output: &mut String, app: &DashboardApp) {
     let workspace = escape_html(&app.workspace);
     let project = escape_html(&app.project);
     let service = escape_html(&app.service);
     let status = app.status;
-    let url = app.url.as_deref().map(escape_html);
     let mode = app.mode;
+    let navigation = preferred_navigation(app);
+
+    let closing_tag = if let Some((destination_kind, destination)) = navigation {
+        let destination = escape_html(destination);
+        let aria_label = escape_html(&format!(
+            "Open {} / {} {} via {}",
+            app.workspace, app.project, app.service, destination_kind
+        ));
+        let _ = write!(
+            output,
+            r#"<a class="card card-link" href="{destination}" aria-label="{aria_label}">"#
+        );
+        "</a>"
+    } else {
+        output.push_str(r#"<article class="card card-unavailable">"#);
+        "</article>"
+    };
 
     let _ = write!(
         output,
-        r#"<article class="card">
-  <div class="card-head">
+        r#"<div class="card-head">
     <div class="identity">
-      <div class="project">{workspace} / {project}</div>
-      <h2>{service}</h2>
+      <div class="project">{workspace} / {service}</div>
+      <h3>{project}</h3>
     </div>
     <div class="badges">
       <span class="status {status_class}">{status_label}</span>
@@ -711,29 +863,58 @@ fn render_app(output: &mut String, app: &DashboardApp) {
         mode_label = mode.label(),
     );
 
-    output.push_str(r#"<div class="links">"#);
-    if let Some(url) = url {
+    render_addresses(output, app);
+
+    let port = app
+        .upstream_port
+        .map(|port| port.to_string())
+        .unwrap_or_else(|| "—".to_string());
+    let _ = write!(
+        output,
+        r#"<dl>
+    <div><dt>Port</dt><dd>{port}</dd></div>
+    <div><dt>PID</dt><dd>{pid}</dd></div>
+    <div><dt>Started</dt><dd>{started}</dd></div>
+  </dl>"#,
+        port = port,
+        pid = app.pid,
+        started = escape_html(&app.started_at),
+    );
+
+    if let Some((destination_kind, _)) = navigation {
         let _ = write!(
             output,
-            r#"<a class="url" href="{url}"><span class="link-kind">Local</span><span class="link-value">{url}</span></a>"#
+            r#"<span class="card-action">Open via {destination_kind}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3h8v8M13 3 3 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>"#
         );
     }
-    for tailnet_url in &app.tailnet_urls {
-        let tailnet_url = escape_html(tailnet_url);
-        let _ = write!(
-            output,
-            r#"<a class="url" href="{tailnet_url}"><span class="link-kind">Tailnet</span><span class="link-value">{tailnet_url}</span></a>"#
-        );
-    }
-    if app.url.is_none() && app.tailnet_urls.is_empty() {
-        let message = if app.mode == ProcessMode::Foreground {
-            "No managed HTTP route"
-        } else {
-            "Route unavailable"
-        };
-        let _ = write!(output, r#"<span class="url unavailable">{message}</span>"#);
-    }
-    output.push_str("</div>");
+    output.push_str(closing_tag);
+}
+
+fn render_supporting_process(output: &mut String, app: &DashboardApp) {
+    let workspace = escape_html(&app.workspace);
+    let project = escape_html(&app.project);
+    let service = escape_html(&app.service);
+    let status = app.status;
+    let mode = app.mode;
+    let kind = app.kind.map(PortKind::as_str).unwrap_or("process");
+
+    let _ = write!(
+        output,
+        r#"<li class="process-row">
+  <div class="identity">
+    <div class="project">{workspace} / {service}</div>
+    <h3>{project}</h3>
+  </div>
+  <div class="process-badges">
+    <span class="status {status_class}">{status_label}</span>
+    <span class="kind">{kind}</span>
+    <span class="mode {mode_class}">{mode_label}</span>
+  </div>"#,
+        status_class = status.css_class(),
+        status_label = status.label(),
+        mode_class = mode.css_class(),
+        mode_label = mode.label(),
+    );
 
     let port = app
         .upstream_port
@@ -746,11 +927,38 @@ fn render_app(output: &mut String, app: &DashboardApp) {
     <div><dt>PID</dt><dd>{pid}</dd></div>
     <div><dt>Started</dt><dd>{started}</dd></div>
   </dl>
-</article>"#,
+</li>"#,
         port = port,
         pid = app.pid,
         started = escape_html(&app.started_at),
     );
+}
+
+fn render_addresses(output: &mut String, app: &DashboardApp) {
+    output.push_str(r#"<div class="links">"#);
+    if let Some(url) = &app.url {
+        let url = escape_html(url);
+        let _ = write!(
+            output,
+            r#"<span class="url"><span class="link-kind">Local</span><span class="link-value">{url}</span></span>"#
+        );
+    }
+    for tailnet_url in &app.tailnet_urls {
+        let tailnet_url = escape_html(tailnet_url);
+        let _ = write!(
+            output,
+            r#"<span class="url"><span class="link-kind">Tailnet</span><span class="link-value">{tailnet_url}</span></span>"#
+        );
+    }
+    if app.url.is_none() && app.tailnet_urls.is_empty() {
+        let message = if app.mode == ProcessMode::Foreground {
+            "No managed HTTP route"
+        } else {
+            "Route unavailable"
+        };
+        let _ = write!(output, r#"<span class="url unavailable">{message}</span>"#);
+    }
+    output.push_str("</div>");
 }
 
 fn escape_html(value: &str) -> String {
@@ -772,6 +980,7 @@ fn escape_html(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::foreground_processes::ForegroundProcessState;
+    use crate::models::{PortProject, PortService};
     use crate::routes::ROUTES_SCHEMA_VERSION;
     use crate::services::ServiceState;
     use chrono::{TimeZone, Utc};
@@ -807,6 +1016,61 @@ mod tests {
                 .insert((*service).into(), state.clone());
         }
         ServicesData { projects }
+    }
+
+    fn ports(entries: &[(&str, &str, PortKind, u16)]) -> PortsData {
+        let mut data = PortsData::default();
+        for (project_key, service_key, kind, port) in entries {
+            let (workspace, project) = project_key
+                .split_once('/')
+                .expect("test project key must include a workspace");
+            data.projects
+                .entry((*project_key).into())
+                .or_insert_with(|| PortProject {
+                    workspace: workspace.into(),
+                    project: project.into(),
+                    path: format!("/tmp/{project}"),
+                    services: HashMap::new(),
+                })
+                .services
+                .insert(
+                    (*service_key).into(),
+                    PortService {
+                        kind: *kind,
+                        env: kind.env_key().into(),
+                        port: *port,
+                        locked: false,
+                    },
+                );
+        }
+        data
+    }
+
+    fn dashboard_app(
+        project: &str,
+        service: &str,
+        kind: Option<PortKind>,
+        mode: ProcessMode,
+        url: Option<&str>,
+        tailnet_urls: &[&str],
+    ) -> DashboardApp {
+        DashboardApp {
+            workspace: "personal".into(),
+            project: project.into(),
+            service: service.into(),
+            kind,
+            mode,
+            pid: 42,
+            upstream_port: (mode == ProcessMode::Background).then_some(18_462),
+            started_at: "2026-07-25 12:30:00 UTC".into(),
+            url: url.map(str::to_string),
+            tailnet_urls: tailnet_urls.iter().map(|url| (*url).to_string()).collect(),
+            status: if url.is_some() || !tailnet_urls.is_empty() {
+                AppStatus::Running
+            } else {
+                AppStatus::RouteMissing
+            },
+        }
     }
 
     #[test]
@@ -944,17 +1208,18 @@ mod tests {
                 workspace: r#"<script>alert("workspace")</script>"#.into(),
                 project: "api&admin".into(),
                 service: r#"front"><img src=x>"#.into(),
+                kind: Some(PortKind::Frontend),
                 mode: ProcessMode::Background,
                 pid: 1,
                 upstream_port: Some(3000),
                 started_at: "2026-07-25 12:30:00 UTC".into(),
-                url: None,
+                url: Some(r#"http://front.localhost/?q="><script>"#.into()),
                 tailnet_urls: Vec::new(),
-                status: AppStatus::RouteMissing,
+                status: AppStatus::Running,
             }],
-            background_count: 0,
+            background_count: 1,
             foreground_count: 0,
-            attention_count: 1,
+            attention_count: 0,
         };
 
         let html = render_html(&snapshot, 7100);
@@ -964,6 +1229,7 @@ mod tests {
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("api&amp;admin"));
         assert!(html.contains("&quot;&gt;&lt;img"));
+        assert!(html.contains("&quot;&gt;&lt;script&gt;"));
     }
 
     #[test]
@@ -992,12 +1258,16 @@ mod tests {
         );
         let tailnet_links =
             HashMap::from([(18_462, vec!["https://m5-air.example.ts.net:8443/".into()])]);
+        let ports = ports(&[("personal/web", "front", PortKind::Frontend, 18_462)]);
 
         let snapshot = build_snapshot_with_extras(
-            &routes,
-            &services,
-            &foreground,
-            &tailnet_links,
+            DashboardSources {
+                routes: &routes,
+                services: &services,
+                ports: &ports,
+                foreground: &foreground,
+                tailnet_links: &tailnet_links,
+            },
             7100,
             |_| true,
             |_| true,
@@ -1007,12 +1277,151 @@ mod tests {
         assert_eq!(snapshot.background_count, 1);
         assert_eq!(snapshot.foreground_count, 1);
         assert_eq!(snapshot.apps[0].mode, ProcessMode::Background);
+        assert_eq!(snapshot.apps[0].kind, Some(PortKind::Frontend));
         assert_eq!(
             snapshot.apps[0].tailnet_urls,
             vec!["https://m5-air.example.ts.net:8443/"]
         );
         assert_eq!(snapshot.apps[1].mode, ProcessMode::Foreground);
+        assert_eq!(snapshot.apps[1].kind, None);
         assert_eq!(snapshot.apps[1].upstream_port, None);
+    }
+
+    #[test]
+    fn snapshot_uses_registered_port_kind_and_runtime_port() {
+        let services = services(&[
+            ("personal/site", "web", state(1, 18_001)),
+            ("personal/site", "front", state(2, 22_001)),
+            ("personal/site", "client", state(3, 18_002)),
+        ]);
+        let ports = ports(&[
+            ("personal/site", "web", PortKind::Frontend, 18_001),
+            ("personal/site", "front", PortKind::Backend, 22_001),
+            ("personal/site", "client", PortKind::Frontend, 18_999),
+        ]);
+
+        let snapshot = build_snapshot_with_extras(
+            DashboardSources {
+                routes: &RoutesData::default(),
+                services: &services,
+                ports: &ports,
+                foreground: &ForegroundProcessesData::default(),
+                tailnet_links: &HashMap::new(),
+            },
+            7100,
+            |_| true,
+            |_| false,
+        );
+
+        let kind_for = |service: &str| {
+            snapshot
+                .apps
+                .iter()
+                .find(|app| app.service == service)
+                .and_then(|app| app.kind)
+        };
+        assert_eq!(kind_for("web"), Some(PortKind::Frontend));
+        assert_eq!(kind_for("front"), Some(PortKind::Backend));
+        assert_eq!(kind_for("client"), None);
+    }
+
+    #[test]
+    fn rendering_makes_only_frontends_clickable_cards() {
+        let snapshot = DashboardSnapshot {
+            apps: vec![
+                dashboard_app(
+                    "web",
+                    "front",
+                    Some(PortKind::Frontend),
+                    ProcessMode::Background,
+                    Some("http://front.web.personal.localhost:7100/"),
+                    &["https://m5-air.example.ts.net:8443/"],
+                ),
+                dashboard_app(
+                    "web",
+                    "back",
+                    Some(PortKind::Backend),
+                    ProcessMode::Background,
+                    Some("http://back.web.personal.localhost:7100/"),
+                    &["https://m5-air.example.ts.net:9443/"],
+                ),
+                dashboard_app("worker", "pnpm", None, ProcessMode::Foreground, None, &[]),
+            ],
+            background_count: 2,
+            foreground_count: 1,
+            attention_count: 1,
+        };
+
+        let html = render_html(&snapshot, 7100);
+
+        assert_eq!(html.matches(r#"<a class="card card-link""#).count(), 1);
+        assert_eq!(html.matches(r#"<li class="process-row">"#).count(), 2);
+        assert!(html.contains(r#"href="https://m5-air.example.ts.net:8443/""#));
+        assert!(html.contains(r#"aria-label="Open personal / web front via Tailnet""#));
+        assert!(!html.contains(r#"href="http://front.web.personal.localhost:7100/""#));
+        assert!(!html.contains("http://back.web.personal.localhost:7100/"));
+        assert!(!html.contains("https://m5-air.example.ts.net:9443/"));
+        assert!(html.contains("Backend &amp; other processes"));
+        assert!(html.contains("Open via Tailnet"));
+    }
+
+    #[test]
+    fn frontend_card_falls_back_to_local_and_disables_missing_routes() {
+        let snapshot = DashboardSnapshot {
+            apps: vec![
+                dashboard_app(
+                    "local",
+                    "web",
+                    Some(PortKind::Frontend),
+                    ProcessMode::Background,
+                    Some("http://web.local.personal.localhost:7100/"),
+                    &[],
+                ),
+                dashboard_app(
+                    "offline",
+                    "client",
+                    Some(PortKind::Frontend),
+                    ProcessMode::Background,
+                    None,
+                    &[],
+                ),
+            ],
+            background_count: 2,
+            foreground_count: 0,
+            attention_count: 1,
+        };
+
+        let html = render_html(&snapshot, 7100);
+
+        assert_eq!(html.matches(r#"class="card card-link""#).count(), 1);
+        assert_eq!(html.matches(r#"class="card card-unavailable""#).count(), 1);
+        assert!(html.contains(r#"href="http://web.local.personal.localhost:7100/""#));
+        assert!(html.contains("Open via Local"));
+        assert!(html.contains("Route unavailable"));
+    }
+
+    #[test]
+    fn backend_only_snapshot_keeps_process_list_instead_of_global_empty_state() {
+        let snapshot = DashboardSnapshot {
+            apps: vec![dashboard_app(
+                "api",
+                "back",
+                Some(PortKind::Backend),
+                ProcessMode::Background,
+                Some("http://back.api.personal.localhost:7100/"),
+                &[],
+            )],
+            background_count: 1,
+            foreground_count: 0,
+            attention_count: 0,
+        };
+
+        let html = render_html(&snapshot, 7100);
+
+        assert!(html.contains("No frontend applications are running"));
+        assert!(!html.contains("No PM processes are running"));
+        assert_eq!(html.matches(r#"<li class="process-row">"#).count(), 1);
+        assert!(!html.contains("http://back.api.personal.localhost:7100/"));
     }
 
     #[test]

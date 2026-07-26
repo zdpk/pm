@@ -103,15 +103,20 @@ http://127.0.0.1:<proxy_port>/       # 편의 alias
 
 페이지는 `services.json`의 detached service를 Background로,
 `foreground-processes.json`의 실행 중인 `pm run --` child를 Foreground로
-표시하고 `routes.json`에서 클릭 가능한 로컬 URL을 결합합니다.
-workspace/project/service, PID, upstream port, 시작 시각과 선호 URL을
-표시하며, canonical hostname과 짧은 alias가 함께 있어도 서비스는 한 번만
-표시합니다. route가 없는 live service도 목록에서 숨기지 않고 URL을
+표시하고 `ports.json`의 port kind로 frontend와 나머지 process를 구분하며,
+`routes.json`에서 로컬 URL을 결합합니다. frontend는 카드 전체가 링크이며
+Tailnet URL이 있으면 이를 우선하고, 없으면 로컬 URL로 이동합니다. backend,
+infra와 Foreground process는 하단의 이동 주소 없는 요약 목록으로 표시합니다.
+모든 항목은 workspace/project/service, PID, upstream port와 시작 시각을
+표시하고 frontend에는 선호 URL도 표시합니다. canonical hostname과 짧은
+alias가 함께 있어도 서비스는 한 번만 표시합니다. route가 없는 live
+frontend service도 목록에서 숨기지 않고 URL을
 unavailable로 표시합니다. 비정상 종료 뒤 registry에 남은 PID는 실행 중으로
 계산하지 않고 stopped 상태로 표시합니다.
 
 Tailscale Serve가 설치되어 있으면 현재 loopback proxy mapping을 읽어
-service port와 일치하는 Tailnet URL을 함께 표시합니다. PM proxy는 계속
+service port와 일치하는 Tailnet URL을 함께 표시하며 frontend 카드의 우선
+이동 주소로 사용합니다. PM proxy는 계속
 loopback에만 bind하며, `dev.dashboard_hosts`에 등록한 정확한 hostname만
 Tailscale 같은 로컬 reverse proxy를 통한 dashboard Host로 허용합니다.
 

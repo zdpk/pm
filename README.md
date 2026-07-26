@@ -406,8 +406,13 @@ logs, or lifecycle controls.
 Detached orchestrator services are labeled **Background**. A legacy
 `pm run -- <command>` invocation is registered only while its child is alive
 and is labeled **Foreground**; PM stores the executable name but never command
-arguments. When Tailscale Serve is installed, the dashboard reads its current
-loopback proxy mappings and adds matching Tailnet links to service cards.
+arguments. PM uses the registered port kind to render frontend services as
+clickable cards and lists backend, infrastructure, and foreground processes in
+a compact non-navigable section below. A frontend card prefers its matching
+Tailnet URL and falls back to its local route. Supporting process rows do not
+show navigation addresses. When Tailscale Serve is installed, the dashboard
+reads its current loopback proxy mappings and shows matching Tailnet addresses
+on frontend cards.
 
 PM always binds the dashboard to loopback. To put a trusted Tailnet reverse
 proxy in front of it, allow the machine's exact MagicDNS hostname and expose the
