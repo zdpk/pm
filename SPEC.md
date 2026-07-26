@@ -106,9 +106,10 @@ http://127.0.0.1:<proxy_port>/       # 편의 alias
 표시하고 `ports.json`의 port kind로 frontend와 나머지 process를 구분하며,
 `routes.json`에서 로컬 URL을 결합합니다. frontend는 카드 전체가 링크이며
 Tailnet URL이 있으면 이를 우선하고, 없으면 로컬 URL로 이동합니다. 알려진
-frontend workspace/project 조합은 버전이 고정된 평면 리소그래프 스타일의 내장
-일러스트와 한 줄 제품 설명을 종이·잉크 기반의 절제된 editorial layout으로 함께
-표시하고, 별도 presentation이 없는 project는 중립적인 fallback visual을
+frontend workspace/project/service 조합은 버전이 고정된 평면 리소그래프
+스타일의 내장 일러스트와 한 줄 제품 설명을 종이·잉크 기반의 절제된 editorial
+layout으로 함께
+표시하고, 별도 presentation이 없는 조합은 중립적인 fallback visual을
 사용합니다. backend, infra와 Foreground process는 하단의 이동 주소 없는 요약
 목록으로 표시합니다. 모든 항목은 workspace/project/service, PID, upstream
 port와 시작 시각을 표시하고 frontend에는 선호 URL도 표시합니다. canonical

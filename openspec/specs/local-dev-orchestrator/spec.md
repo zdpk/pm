@@ -239,7 +239,7 @@ SHALL also display their upstream port. Frontend services with a navigation
 target SHALL render as application cards whose whole card is a single link,
 preferring a matching Tailnet URL and falling back to the preferred local
 hostname URL. Frontend services without a navigation target SHALL render as
-unavailable application cards. A frontend with a known workspace/project
+unavailable application cards. A frontend with a known workspace/project/service
 presentation SHALL display its versioned embedded flat risograph-style
 illustration and concise product description in a restrained paper-and-ink
 editorial treatment; other frontends SHALL retain a neutral fallback visual

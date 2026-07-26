@@ -409,10 +409,11 @@ and is labeled **Foreground**; PM stores the executable name but never command
 arguments. PM uses the registered port kind to render frontend services as
 clickable cards and lists backend, infrastructure, and foreground processes in
 a compact non-navigable section below. A frontend card prefers its matching
-Tailnet URL and falls back to its local route. Known frontend workspace/project
-identities also show a versioned, embedded flat risograph-style illustration and
+Tailnet URL and falls back to its local route. Known frontend
+workspace/project/service identities also show a versioned, embedded flat
+risograph-style illustration and
 a concise product description inside a restrained paper-and-ink editorial
-layout; unknown projects use a neutral fallback visual. Supporting process rows
+layout; unknown identities use a neutral fallback visual. Supporting process rows
 do not show navigation addresses. When Tailscale Serve is installed, the
 dashboard reads its current loopback proxy mappings and shows matching Tailnet
 addresses on frontend cards. The page refreshes every five seconds while idle,

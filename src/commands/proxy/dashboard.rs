@@ -103,6 +103,14 @@ const DASHBOARD_ASSETS: &[DashboardAsset] = &[
         )),
     },
     DashboardAsset {
+        path: "/assets/dashboard/korion-studio-card-v2.jpg",
+        content_type: "image/jpeg",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/dashboard/korion-studio-card-v2.jpg"
+        )),
+    },
+    DashboardAsset {
         path: "/assets/dashboard/topclass-card-v2.jpg",
         content_type: "image/jpeg",
         bytes: include_bytes!(concat!(
@@ -186,6 +194,7 @@ struct DashboardApp {
 
 #[derive(Clone, Copy)]
 struct FrontendPresentation {
+    display_name: Option<&'static str>,
     description: &'static str,
     image_path: Option<&'static str>,
 }
@@ -963,25 +972,35 @@ fn preferred_navigation(app: &DashboardApp) -> Option<(&'static str, &str)> {
         .or_else(|| app.url.as_deref().map(|url| ("Local", url)))
 }
 
-fn frontend_presentation(workspace: &str, project: &str) -> FrontendPresentation {
-    match (workspace, project) {
-        ("personal", "i-learn") => FrontendPresentation {
+fn frontend_presentation(workspace: &str, project: &str, service: &str) -> FrontendPresentation {
+    match (workspace, project, service) {
+        ("personal", "i-learn", "front") => FrontendPresentation {
+            display_name: None,
             description: "Cloud certification roadmaps, practice, AI tutoring and readiness.",
             image_path: Some("/assets/dashboard/i-learn-card-v2.jpg"),
         },
-        ("personal", "stock-analyzer") => FrontendPresentation {
+        ("personal", "stock-analyzer", "front") => FrontendPresentation {
+            display_name: None,
             description: "Evidence-backed futures flow and bio-pharma research.",
             image_path: Some("/assets/dashboard/stock-analyzer-card-v2.jpg"),
         },
-        ("prod", "korion") => FrontendPresentation {
+        ("prod", "korion", "front") => FrontendPresentation {
+            display_name: None,
             description: "Visual vocabulary learning across Korean, Japanese and English.",
             image_path: Some("/assets/dashboard/korion-card-v2.jpg"),
         },
-        ("prod", "topclass") => FrontendPresentation {
+        ("prod", "korion", "studio") => FrontendPresentation {
+            display_name: Some("Korion Studio"),
+            description: "A private content studio for characters, word art, storybooks and social publishing.",
+            image_path: Some("/assets/dashboard/korion-studio-card-v2.jpg"),
+        },
+        ("prod", "topclass", "front") => FrontendPresentation {
+            display_name: None,
             description: "Global rankings remixed into editorial cards and short-form stories.",
             image_path: Some("/assets/dashboard/topclass-card-v2.jpg"),
         },
         _ => FrontendPresentation {
+            display_name: None,
             description: "A frontend application managed by PM.",
             image_path: None,
         },
@@ -990,12 +1009,16 @@ fn frontend_presentation(workspace: &str, project: &str) -> FrontendPresentation
 
 fn render_frontend_card(output: &mut String, app: &DashboardApp) {
     let workspace = escape_html(&app.workspace);
-    let project = escape_html(&app.project);
     let service = escape_html(&app.service);
     let status = app.status;
     let mode = app.mode;
     let navigation = preferred_navigation(app);
-    let presentation = frontend_presentation(&app.workspace, &app.project);
+    let presentation = frontend_presentation(&app.workspace, &app.project, &app.service);
+    let display_name = match presentation.display_name {
+        Some(display_name) => display_name,
+        None => app.project.as_str(),
+    };
+    let display_name = escape_html(display_name);
 
     let closing_tag = if let Some((destination_kind, destination)) = navigation {
         let destination = escape_html(destination);
@@ -1031,7 +1054,7 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
   <div class="card-head">
     <div class="identity">
       <div class="project">{workspace} / {service}</div>
-      <h3>{project}</h3>
+      <h3>{display_name}</h3>
     </div>
     <div class="badges">
       <span class="status {status_class}">{status_label}</span>
@@ -1554,21 +1577,41 @@ mod tests {
     fn known_frontends_render_distinct_illustrations_and_descriptions() {
         let presentations = [
             (
+                "personal",
+                "i-learn",
+                "front",
                 "i-learn",
                 "/assets/dashboard/i-learn-card-v2.jpg",
                 "Cloud certification roadmaps, practice, AI tutoring and readiness.",
             ),
             (
+                "personal",
+                "stock-analyzer",
+                "front",
                 "stock-analyzer",
                 "/assets/dashboard/stock-analyzer-card-v2.jpg",
                 "Evidence-backed futures flow and bio-pharma research.",
             ),
             (
+                "prod",
+                "korion",
+                "front",
                 "korion",
                 "/assets/dashboard/korion-card-v2.jpg",
                 "Visual vocabulary learning across Korean, Japanese and English.",
             ),
             (
+                "prod",
+                "korion",
+                "studio",
+                "Korion Studio",
+                "/assets/dashboard/korion-studio-card-v2.jpg",
+                "A private content studio for characters, word art, storybooks and social publishing.",
+            ),
+            (
+                "prod",
+                "topclass",
+                "front",
                 "topclass",
                 "/assets/dashboard/topclass-card-v2.jpg",
                 "Global rankings remixed into editorial cards and short-form stories.",
@@ -1577,18 +1620,18 @@ mod tests {
         let snapshot = DashboardSnapshot {
             apps: presentations
                 .iter()
-                .map(|(project, _, _)| {
+                .map(|(workspace, project, service, _, _, _)| {
                     let mut app = dashboard_app(
                         project,
-                        "front",
+                        service,
                         Some(PortKind::Frontend),
                         ProcessMode::Background,
-                        Some(&format!("http://front.{project}.personal.localhost:7100/")),
+                        Some(&format!(
+                            "http://{service}.{project}.{workspace}.localhost:7100/"
+                        )),
                         &[],
                     );
-                    if matches!(*project, "korion" | "topclass") {
-                        app.workspace = "prod".into();
-                    }
+                    app.workspace = (*workspace).into();
                     app
                 })
                 .collect(),
@@ -1599,12 +1642,13 @@ mod tests {
 
         let html = render_html(&snapshot, 7100);
 
-        for (_, image_path, description) in presentations {
+        for (_, _, _, display_name, image_path, description) in presentations {
+            assert!(html.contains(&format!("<h3>{display_name}</h3>")));
             assert!(html.contains(&format!(r#"<img src="{image_path}""#)));
             assert!(html.contains(description));
         }
-        assert_eq!(html.matches(r#"<figure class="card-visual""#).count(), 4);
-        assert_eq!(html.matches(r#"width="1024" height="1024""#).count(), 4);
+        assert_eq!(html.matches(r#"<figure class="card-visual""#).count(), 5);
+        assert_eq!(html.matches(r#"width="1024" height="1024""#).count(), 5);
         assert!(!html.contains(r#"<figure class="card-visual card-visual-fallback""#));
 
         let wrong_workspace = DashboardSnapshot {
@@ -1625,6 +1669,30 @@ mod tests {
             wrong_workspace_html.contains(r#"<figure class="card-visual card-visual-fallback""#)
         );
         assert!(!wrong_workspace_html.contains("/assets/dashboard/korion-card-v2.jpg"));
+
+        let mut unknown_service = dashboard_app(
+            "korion",
+            "preview",
+            Some(PortKind::Frontend),
+            ProcessMode::Background,
+            Some("http://preview.korion.prod.localhost:7100/"),
+            &[],
+        );
+        unknown_service.workspace = "prod".into();
+        let unknown_service_html = render_html(
+            &DashboardSnapshot {
+                apps: vec![unknown_service],
+                background_count: 1,
+                foreground_count: 0,
+                attention_count: 0,
+            },
+            7100,
+        );
+        assert!(
+            unknown_service_html.contains(r#"<figure class="card-visual card-visual-fallback""#)
+        );
+        assert!(!unknown_service_html.contains("/assets/dashboard/korion-card-v2.jpg"));
+        assert!(!unknown_service_html.contains("/assets/dashboard/korion-studio-card-v2.jpg"));
     }
 
     #[test]
@@ -1763,7 +1831,7 @@ mod tests {
         assert_eq!(post.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(post.headers().get(ALLOW).unwrap(), "GET, HEAD");
 
-        let asset_path = "/assets/dashboard/i-learn-card-v2.jpg";
+        let asset_path = "/assets/dashboard/korion-studio-card-v2.jpg";
         let asset_get = response(&Method::GET, asset_path, &routes, 7100).await;
         assert_eq!(asset_get.status(), StatusCode::OK);
         assert_eq!(asset_get.headers().get(CONTENT_TYPE).unwrap(), "image/jpeg");
