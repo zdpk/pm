@@ -79,35 +79,35 @@ const DASHBOARD_ASSETS: &[DashboardAsset] = &[
         bytes: DASHBOARD_REFRESH_SCRIPT,
     },
     DashboardAsset {
-        path: "/assets/dashboard/i-learn-card-v1.jpg",
+        path: "/assets/dashboard/i-learn-card-v2.jpg",
         content_type: "image/jpeg",
         bytes: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/dashboard/i-learn-card-v1.jpg"
+            "/assets/dashboard/i-learn-card-v2.jpg"
         )),
     },
     DashboardAsset {
-        path: "/assets/dashboard/stock-analyzer-card-v1.jpg",
+        path: "/assets/dashboard/stock-analyzer-card-v2.jpg",
         content_type: "image/jpeg",
         bytes: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/dashboard/stock-analyzer-card-v1.jpg"
+            "/assets/dashboard/stock-analyzer-card-v2.jpg"
         )),
     },
     DashboardAsset {
-        path: "/assets/dashboard/korion-card-v1.jpg",
+        path: "/assets/dashboard/korion-card-v2.jpg",
         content_type: "image/jpeg",
         bytes: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/dashboard/korion-card-v1.jpg"
+            "/assets/dashboard/korion-card-v2.jpg"
         )),
     },
     DashboardAsset {
-        path: "/assets/dashboard/topclass-card-v1.jpg",
+        path: "/assets/dashboard/topclass-card-v2.jpg",
         content_type: "image/jpeg",
         bytes: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/dashboard/topclass-card-v1.jpg"
+            "/assets/dashboard/topclass-card-v2.jpg"
         )),
     },
 ];
@@ -839,78 +839,80 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PM Processes</title>
   <style>
-    :root {{ color-scheme: dark; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #09090b; color: #f4f4f5; }}
+    :root {{ color-scheme: light; font-family: Arial, Helvetica, ui-sans-serif, sans-serif; background: #f2efe6; color: #171714; }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; min-height: 100vh; background: radial-gradient(circle at top left, #172554 0, transparent 34rem), #09090b; }}
-    main {{ width: min(1240px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0 80px; }}
-    header {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }}
-    .eyebrow {{ margin: 0 0 8px; color: #93c5fd; font: 700 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; }}
-    h1 {{ margin: 0; font-size: clamp(34px, 7vw, 64px); line-height: .95; letter-spacing: -.055em; }}
-    .summary {{ display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }}
-    .summary span {{ border: 1px solid #27272a; border-radius: 999px; padding: 8px 12px; color: #a1a1aa; background: #18181bcc; font-size: 13px; }}
-    .summary strong {{ color: #fafafa; }}
-    .section-heading {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 0 0 14px; }}
-    .section-heading h2 {{ margin: 0; font-size: 19px; letter-spacing: -.02em; }}
-    .section-heading > span, .section-heading p {{ margin: 0; color: #a1a1aa; font-size: 12px; }}
-    .section-kicker {{ margin: 0 0 4px !important; color: #60a5fa !important; font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace !important; letter-spacing: .1em; text-transform: uppercase; }}
+    body {{ margin: 0; min-height: 100vh; background: #f2efe6; }}
+    main {{ width: min(1320px, calc(100% - 40px)); margin: 0 auto; padding: 42px 0 52px; }}
+    header {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 34px; }}
+    .eyebrow {{ margin: 0 0 8px; color: #3f3e38; font: 700 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .13em; text-transform: uppercase; }}
+    h1 {{ margin: 0; font-size: clamp(42px, 6vw, 72px); line-height: .9; letter-spacing: -.055em; }}
+    .summary {{ display: flex; gap: 0; flex-wrap: wrap; justify-content: flex-end; }}
+    .summary span {{ display: inline-flex; align-items: baseline; gap: 6px; border-left: 1px solid #8e8a80; padding: 0 20px; color: #4f4e47; font-size: 12px; }}
+    .summary span:first-child {{ border-left: 0; }}
+    .summary span:last-child {{ padding-right: 0; }}
+    .summary strong {{ color: #171714; font-size: 23px; line-height: 1; }}
+    .section-heading {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 0 0 9px; }}
+    .section-heading h2 {{ margin: 0; font-size: 20px; letter-spacing: -.025em; }}
+    .section-heading > span, .section-heading p {{ margin: 0; color: #5f5e56; font-size: 12px; }}
+    .section-kicker {{ margin: 0 0 4px !important; color: #3f3e38 !important; font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace !important; letter-spacing: .11em; text-transform: uppercase; }}
     .grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }}
-    .card {{ display: grid; min-width: 0; min-height: 318px; grid-template-columns: minmax(0, .94fr) minmax(0, 1.06fr); overflow: hidden; border: 1px solid #27272a; border-radius: 18px; padding: 0; color: inherit; background: #111116e8; box-shadow: 0 18px 50px #0005; text-decoration: none; }}
-    .card-link {{ cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }}
-    .card-link:hover {{ border-color: #3b82f6; box-shadow: 0 20px 54px #0007, 0 0 0 1px #3b82f633; transform: translateY(-2px); }}
-    .card-link:focus-visible {{ outline: 3px solid #60a5fa; outline-offset: 3px; border-color: #60a5fa; }}
+    .card {{ display: grid; min-width: 0; min-height: 286px; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); overflow: hidden; border: 1px solid #3a3934; border-radius: 2px; padding: 0; color: inherit; background: transparent; text-decoration: none; }}
+    .card-link {{ cursor: pointer; transition: background-color .14s ease, border-color .14s ease; }}
+    .card-link:hover {{ border-color: #171714; background: #eae6da; }}
+    .card-link:focus-visible {{ outline: 3px solid #315c8a; outline-offset: 3px; border-color: #315c8a; }}
     .card-unavailable {{ border-style: dashed; }}
-    .card-visual {{ position: relative; min-width: 0; min-height: 100%; overflow: hidden; margin: 0; border-right: 1px solid #27272a; background: radial-gradient(circle at 50% 36%, #1d4ed855, transparent 46%), #0b1020; }}
-    .card-visual img {{ display: block; width: 100%; height: 100%; object-fit: cover; transform: scale(1.01); transition: transform .28s ease; }}
-    .card-link:hover .card-visual img {{ transform: scale(1.035); }}
-    .card-visual-fallback {{ display: grid; place-items: center; color: #3f3f46; font: 700 34px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
-    .card-content {{ display: flex; min-width: 0; flex-direction: column; padding: 20px; }}
+    .card-visual {{ position: relative; min-width: 0; min-height: 100%; overflow: hidden; margin: 0; border-right: 1px solid #3a3934; background: #e4dfd3; }}
+    .card-visual img {{ display: block; width: 100%; height: 100%; object-fit: cover; }}
+    .card-visual-fallback {{ display: grid; place-items: center; color: #5f5e56; font: 700 34px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
+    .card-content {{ display: flex; min-width: 0; flex-direction: column; padding: 17px 18px 14px; }}
     .card-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }}
     .identity {{ min-width: 0; }}
-    .project {{ overflow: hidden; color: #a1a1aa; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }}
-    h3 {{ margin: 5px 0 0; font-size: 25px; letter-spacing: -.03em; }}
-    .app-description {{ margin: 13px 0 0; color: #a1a1aa; font-size: 13px; line-height: 1.55; }}
+    .project {{ overflow: hidden; color: #5f5e56; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .035em; text-overflow: ellipsis; white-space: nowrap; }}
+    h3 {{ margin: 5px 0 0; font-size: 25px; letter-spacing: -.035em; }}
+    .app-description {{ margin: 11px 0 0; color: #34332f; font-size: 13px; line-height: 1.48; }}
     .badges {{ display: flex; align-items: flex-end; gap: 6px; flex-direction: column; }}
-    .status {{ flex: 0 0 auto; border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 750; }}
-    .status.running {{ color: #86efac; background: #14532d66; }}
-    .status.warning {{ color: #fde68a; background: #78350f66; }}
-    .status.stale {{ color: #d4d4d8; background: #3f3f4666; }}
-    .mode {{ border: 1px solid #3f3f46; border-radius: 999px; padding: 4px 8px; color: #a1a1aa; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }}
-    .mode.foreground {{ border-color: #1d4ed8; color: #bfdbfe; }}
-    .links {{ display: grid; gap: 7px; margin: 17px 0; }}
-    .url {{ display: flex; min-width: 0; align-items: center; gap: 8px; overflow: hidden; color: #93c5fd; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; text-decoration: none; }}
-    .link-kind {{ flex: 0 0 auto; border: 1px solid #3f3f46; border-radius: 5px; padding: 1px 5px; color: #a1a1aa; font: 700 9px/1.5 ui-sans-serif, sans-serif; text-transform: uppercase; letter-spacing: .05em; }}
+    .status {{ display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0; font-size: 11px; font-weight: 700; }}
+    .status::before {{ width: 7px; height: 7px; border-radius: 50%; background: currentColor; content: ""; }}
+    .status.running {{ color: #315d42; }}
+    .status.warning {{ color: #7a5510; }}
+    .status.stale {{ color: #6b6961; }}
+    .mode {{ border: 0; border-bottom: 1px solid currentColor; border-radius: 0; padding: 2px 0; color: #4f4e47; font: 700 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .06em; }}
+    .mode.foreground {{ color: #315c8a; }}
+    .links {{ display: grid; gap: 5px; margin: 13px 0 11px; }}
+    .url {{ display: flex; min-width: 0; align-items: center; gap: 7px; overflow: hidden; color: #334e63; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; text-decoration: none; }}
+    .link-kind {{ flex: 0 0 42px; padding: 0; color: #171714; font: 700 9px/1.5 ui-sans-serif, sans-serif; text-transform: uppercase; letter-spacing: .06em; }}
     .link-value {{ overflow: hidden; text-overflow: ellipsis; }}
-    .card-link:hover .url {{ color: #dbeafe; }}
-    .url.unavailable {{ color: #a1a1aa; }}
-    dl {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }}
-    dt {{ color: #a1a1aa; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }}
-    dd {{ overflow: hidden; margin: 4px 0 0; color: #d4d4d8; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }}
-    .card-action {{ display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 15px; border-top: 1px solid #27272a; color: #bfdbfe; font-size: 12px; font-weight: 700; }}
-    .card-action svg {{ width: 15px; height: 15px; }}
-    .card-link:hover .card-action {{ color: #fff; }}
-    .supporting {{ margin-top: 40px; }}
-    .supporting-heading {{ padding: 0 2px; }}
-    .process-list {{ display: grid; margin: 0; padding: 0; border-top: 1px solid #27272a; list-style: none; }}
-    .process-row {{ display: grid; min-width: 0; grid-template-columns: minmax(180px, 1fr) auto minmax(300px, 1.25fr); align-items: center; gap: 20px; padding: 16px 2px; border-bottom: 1px solid #27272a; }}
+    .card-link:hover .url {{ color: #171714; }}
+    .url.unavailable {{ color: #5f5e56; }}
+    dl {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; padding-top: 9px; border-top: 1px solid #aaa69a; }}
+    dt {{ color: #5f5e56; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }}
+    dd {{ overflow: hidden; margin: 3px 0 0; color: #171714; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }}
+    .card-action {{ display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 10px; border-top: 1px solid #aaa69a; color: #171714; font-size: 12px; font-weight: 700; }}
+    .card-action svg {{ width: 15px; height: 15px; transition: transform .14s ease; }}
+    .card-link:hover .card-action svg {{ transform: translate(2px, -1px); }}
+    .supporting {{ margin-top: 28px; }}
+    .supporting-heading {{ padding: 0; }}
+    .process-list {{ display: grid; margin: 0; padding: 0; border-top: 1px solid #3a3934; list-style: none; }}
+    .process-row {{ display: grid; min-width: 0; grid-template-columns: minmax(180px, 1fr) auto minmax(300px, 1.25fr); align-items: center; gap: 20px; padding: 12px 2px; border-bottom: 1px solid #8e8a80; }}
     .process-row h3 {{ font-size: 16px; }}
     .process-badges {{ display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }}
-    .kind {{ border: 1px solid #3f3f46; border-radius: 999px; padding: 4px 8px; color: #a1a1aa; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }}
-    .process-row dl {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
-    .empty {{ border: 1px dashed #3f3f46; border-radius: 20px; padding: 64px 24px; color: #a1a1aa; text-align: center; background: #12121699; }}
+    .kind {{ border: 0; border-bottom: 1px solid currentColor; border-radius: 0; padding: 2px 0; color: #4f4e47; font: 700 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .06em; }}
+    .process-row dl {{ grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 0; border-top: 0; }}
+    .empty {{ border: 1px dashed #8e8a80; border-radius: 0; padding: 64px 24px; color: #5f5e56; text-align: center; background: transparent; }}
     .empty.compact {{ padding: 42px 24px; }}
-    .empty-icon {{ display: grid; width: 48px; height: 48px; margin: 0 auto 18px; place-items: center; border: 1px solid #3f3f46; border-radius: 14px; color: #a1a1aa; font: 700 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
-    .empty h2 {{ color: #f4f4f5; }}
+    .empty-icon {{ display: grid; width: 48px; height: 48px; margin: 0 auto 18px; place-items: center; border: 1px solid #8e8a80; border-radius: 0; color: #5f5e56; font: 700 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
+    .empty h2 {{ color: #171714; }}
     .empty p {{ margin-bottom: 0; }}
-    code {{ border: 1px solid #3f3f46; border-radius: 6px; padding: 2px 6px; color: #dbeafe; background: #18181b; }}
-    footer {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 24px; color: #a1a1aa; font-size: 12px; }}
+    code {{ border: 1px solid #8e8a80; border-radius: 0; padding: 2px 6px; color: #171714; background: #eae6da; }}
+    footer {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 20px; color: #5f5e56; font-size: 12px; }}
     .footer-actions {{ display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }}
-    #refresh-toggle {{ appearance: none; border: 0; padding: 0; color: #a1a1aa; background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }}
-    #refresh-toggle:hover, #refresh-toggle:focus-visible, footer a:hover, footer a:focus-visible {{ color: #f4f4f5; }}
-    #refresh-toggle:focus-visible, footer a:focus-visible {{ outline: 2px solid #60a5fa; outline-offset: 3px; border-radius: 2px; }}
-    footer a {{ color: #a1a1aa; }}
-    @media (prefers-reduced-motion: reduce) {{ .card-link, .card-visual img {{ transition: none; }} .card-link:hover {{ transform: none; }} .card-link:hover .card-visual img {{ transform: scale(1.01); }} }}
+    #refresh-toggle {{ appearance: none; border: 0; padding: 0; color: #4f4e47; background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }}
+    #refresh-toggle:hover, #refresh-toggle:focus-visible, footer a:hover, footer a:focus-visible {{ color: #171714; }}
+    #refresh-toggle:focus-visible, footer a:focus-visible {{ outline: 2px solid #315c8a; outline-offset: 3px; border-radius: 0; }}
+    footer a {{ color: #4f4e47; }}
+    @media (prefers-reduced-motion: reduce) {{ .card-link, .card-action svg {{ transition: none; }} .card-link:hover .card-action svg {{ transform: none; }} }}
     @media (max-width: 1100px) {{ .grid {{ grid-template-columns: 1fr; }} }}
-    @media (max-width: 760px) {{ main {{ padding-top: 36px; }} header, .section-heading, footer {{ align-items: flex-start; flex-direction: column; }} .summary, .footer-actions {{ justify-content: flex-start; }} .card {{ grid-template-columns: 1fr; }} .card-visual {{ min-height: 0; aspect-ratio: 3 / 2; border-right: 0; border-bottom: 1px solid #27272a; }} dl, .process-row dl {{ grid-template-columns: 1fr 1fr; }} .process-row {{ grid-template-columns: 1fr; gap: 12px; }} .process-row dl > div:last-child {{ grid-column: 1 / -1; }} .process-badges {{ justify-content: flex-start; }} }}
+    @media (max-width: 760px) {{ main {{ width: min(100% - 28px, 1320px); padding-top: 28px; }} header, .section-heading, footer {{ align-items: flex-start; flex-direction: column; }} .summary, .footer-actions {{ justify-content: flex-start; }} .summary span {{ border-left: 0; padding: 0 14px 0 0; }} .card {{ grid-template-columns: 1fr; }} .card-visual {{ min-height: 0; aspect-ratio: 4 / 3; border-right: 0; border-bottom: 1px solid #3a3934; }} dl, .process-row dl {{ grid-template-columns: 1fr 1fr; }} .process-row {{ grid-template-columns: 1fr; gap: 12px; }} .process-row dl > div:last-child {{ grid-column: 1 / -1; }} .process-badges {{ justify-content: flex-start; }} }}
   </style>
 </head>
 <body>
@@ -965,19 +967,19 @@ fn frontend_presentation(workspace: &str, project: &str) -> FrontendPresentation
     match (workspace, project) {
         ("personal", "i-learn") => FrontendPresentation {
             description: "Cloud certification roadmaps, practice, AI tutoring and readiness.",
-            image_path: Some("/assets/dashboard/i-learn-card-v1.jpg"),
+            image_path: Some("/assets/dashboard/i-learn-card-v2.jpg"),
         },
         ("personal", "stock-analyzer") => FrontendPresentation {
             description: "Evidence-backed futures flow and bio-pharma research.",
-            image_path: Some("/assets/dashboard/stock-analyzer-card-v1.jpg"),
+            image_path: Some("/assets/dashboard/stock-analyzer-card-v2.jpg"),
         },
         ("prod", "korion") => FrontendPresentation {
             description: "Visual vocabulary learning across Korean, Japanese and English.",
-            image_path: Some("/assets/dashboard/korion-card-v1.jpg"),
+            image_path: Some("/assets/dashboard/korion-card-v2.jpg"),
         },
         ("prod", "topclass") => FrontendPresentation {
             description: "Global rankings remixed into editorial cards and short-form stories.",
-            image_path: Some("/assets/dashboard/topclass-card-v1.jpg"),
+            image_path: Some("/assets/dashboard/topclass-card-v2.jpg"),
         },
         _ => FrontendPresentation {
             description: "A frontend application managed by PM.",
@@ -1015,7 +1017,7 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
         let image_path = escape_html(image_path);
         let _ = write!(
             output,
-            r#"<figure class="card-visual" aria-hidden="true"><img src="{image_path}" alt="" width="1200" height="800" decoding="async"></figure>"#
+            r#"<figure class="card-visual" aria-hidden="true"><img src="{image_path}" alt="" width="1024" height="1024" decoding="async"></figure>"#
         );
     } else {
         output.push_str(
@@ -1553,22 +1555,22 @@ mod tests {
         let presentations = [
             (
                 "i-learn",
-                "/assets/dashboard/i-learn-card-v1.jpg",
+                "/assets/dashboard/i-learn-card-v2.jpg",
                 "Cloud certification roadmaps, practice, AI tutoring and readiness.",
             ),
             (
                 "stock-analyzer",
-                "/assets/dashboard/stock-analyzer-card-v1.jpg",
+                "/assets/dashboard/stock-analyzer-card-v2.jpg",
                 "Evidence-backed futures flow and bio-pharma research.",
             ),
             (
                 "korion",
-                "/assets/dashboard/korion-card-v1.jpg",
+                "/assets/dashboard/korion-card-v2.jpg",
                 "Visual vocabulary learning across Korean, Japanese and English.",
             ),
             (
                 "topclass",
-                "/assets/dashboard/topclass-card-v1.jpg",
+                "/assets/dashboard/topclass-card-v2.jpg",
                 "Global rankings remixed into editorial cards and short-form stories.",
             ),
         ];
@@ -1602,6 +1604,7 @@ mod tests {
             assert!(html.contains(description));
         }
         assert_eq!(html.matches(r#"<figure class="card-visual""#).count(), 4);
+        assert_eq!(html.matches(r#"width="1024" height="1024""#).count(), 4);
         assert!(!html.contains(r#"<figure class="card-visual card-visual-fallback""#));
 
         let wrong_workspace = DashboardSnapshot {
@@ -1621,7 +1624,7 @@ mod tests {
         assert!(
             wrong_workspace_html.contains(r#"<figure class="card-visual card-visual-fallback""#)
         );
-        assert!(!wrong_workspace_html.contains("/assets/dashboard/korion-card-v1.jpg"));
+        assert!(!wrong_workspace_html.contains("/assets/dashboard/korion-card-v2.jpg"));
     }
 
     #[test]
@@ -1738,6 +1741,11 @@ mod tests {
         assert!(get_html.contains(r#"<script src="/assets/dashboard/refresh-v1.js" defer>"#));
         assert!(!get_html.contains(r#"<meta http-equiv="refresh""#));
         assert!(!get_html.contains("#71717a"));
+        assert!(get_html.contains("color-scheme: light"));
+        assert!(get_html.contains("background: #f2efe6"));
+        assert!(!get_html.contains("radial-gradient"));
+        assert!(!get_html.contains("box-shadow"));
+        assert!(!get_html.contains("border-radius: 999px"));
 
         let head = dashboard_response(&Method::HEAD, &routes, &services, 7100, |_| true);
         assert_eq!(head.status(), StatusCode::OK);
@@ -1755,7 +1763,7 @@ mod tests {
         assert_eq!(post.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(post.headers().get(ALLOW).unwrap(), "GET, HEAD");
 
-        let asset_path = "/assets/dashboard/i-learn-card-v1.jpg";
+        let asset_path = "/assets/dashboard/i-learn-card-v2.jpg";
         let asset_get = response(&Method::GET, asset_path, &routes, 7100).await;
         assert_eq!(asset_get.status(), StatusCode::OK);
         assert_eq!(asset_get.headers().get(CONTENT_TYPE).unwrap(), "image/jpeg");
