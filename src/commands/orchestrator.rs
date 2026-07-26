@@ -20,7 +20,6 @@ use crate::commands::proxy::daemon as proxy_daemon;
 use crate::commands::run::build_port_env;
 use crate::config::{load_config, logs_dir};
 use crate::models::{PortKind, PortProject, PortService, Project};
-use crate::path::collapse_path;
 use crate::project::{ProjConfig, ResolvedService, ServiceDef, resolve_service_defaults};
 use crate::routes;
 use crate::services as svc_state;
@@ -122,6 +121,10 @@ fn pick_services(
 
 // ── Per-service spawn ──
 
+fn service_cwd(project_dir: &Path, service_dir: &str) -> PathBuf {
+    project_dir.join(service_dir)
+}
+
 fn spawn_service(
     workspace: &str,
     project: &Project,
@@ -147,7 +150,7 @@ fn spawn_service(
     }
 
     let port = ensure_port(workspace, project, service_key, resolved)?;
-    let cwd: PathBuf = PathBuf::from(collapse_path(&project_dir.join(&resolved.dir)));
+    let cwd = service_cwd(project_dir, &resolved.dir);
     fs::create_dir_all(&cwd).ok();
 
     let log_path = open_service_log(workspace, &project.name, service_key)?;
@@ -452,6 +455,15 @@ mod tests {
         let (p, a) = split_dev_cmd("flutter");
         assert_eq!(p, "flutter");
         assert!(a.is_empty());
+    }
+
+    #[test]
+    fn service_cwd_keeps_home_project_paths_absolute() {
+        let project_dir = Path::new("/Users/test/ws/personal/app");
+        assert_eq!(
+            service_cwd(project_dir, "apps/web"),
+            PathBuf::from("/Users/test/ws/personal/app/apps/web")
+        );
     }
 
     #[test]
