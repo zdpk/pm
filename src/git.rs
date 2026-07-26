@@ -1,6 +1,6 @@
 use crate::path::expand_path;
 use anyhow::Result;
-use git2::Repository;
+use git2::{Repository, StatusOptions};
 use std::path::Path;
 use std::process::Command;
 
@@ -72,7 +72,11 @@ pub fn get_status(path: &str) -> Option<GitStatus> {
         Err(_) => None,
     };
 
-    let statuses = repo.statuses(None).ok()?;
+    let mut status_options = StatusOptions::new();
+    status_options
+        .include_untracked(true)
+        .include_ignored(false);
+    let statuses = repo.statuses(Some(&mut status_options)).ok()?;
     let changed_count = statuses.len();
     let has_conflict = statuses.iter().any(|s| s.status().is_conflicted());
 
@@ -277,6 +281,7 @@ pub fn clone_repo(remote: &str, target: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::init_git_repo;
 
     #[test]
     fn derives_slug_after_trailing_slash_and_before_query() {
@@ -369,5 +374,47 @@ mod tests {
                 "{remote} should not be persisted as recovery metadata"
             );
         }
+    }
+
+    #[test]
+    fn status_excludes_ignored_files_but_keeps_untracked_files() {
+        let temp = tempfile::tempdir().unwrap();
+        init_git_repo(temp.path());
+
+        std::fs::write(
+            temp.path().join(".gitignore"),
+            ".env\n.next/\nnode_modules/\n",
+        )
+        .unwrap();
+        for args in [
+            ["add", ".gitignore"].as_slice(),
+            ["commit", "-q", "-m", "add ignores"].as_slice(),
+        ] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(temp.path())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+
+        std::fs::write(temp.path().join(".env"), "SECRET=ignored\n").unwrap();
+        std::fs::create_dir(temp.path().join(".next")).unwrap();
+        std::fs::write(temp.path().join(".next/cache"), "ignored\n").unwrap();
+        std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+        std::fs::write(
+            temp.path().join("node_modules/package.json"),
+            "{\"private\":true}\n",
+        )
+        .unwrap();
+
+        let clean = get_status(temp.path().to_str().unwrap()).unwrap();
+        assert!(clean.is_clean);
+        assert_eq!(clean.changed_count, 0);
+
+        std::fs::write(temp.path().join("visible.txt"), "untracked\n").unwrap();
+        let changed = get_status(temp.path().to_str().unwrap()).unwrap();
+        assert!(!changed.is_clean);
+        assert_eq!(changed.changed_count, 1);
     }
 }
