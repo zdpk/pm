@@ -235,16 +235,22 @@ by either process registry SHALL NOT appear as dashboard applications.
 
 At minimum, each entry SHALL display workspace, project, background/foreground
 mode, PID, start time, and a service or executable name. Background services
-SHALL also display their upstream port. Frontend services SHALL render as
-application cards whose whole card is a single link, preferring a matching
-Tailnet URL and falling back to the preferred local hostname URL. Backend,
-infrastructure, unclassified, and foreground processes SHALL render below the
-cards as non-navigable summary rows without navigation addresses. Entries SHALL
-be grouped or sorted deterministically. A live frontend service without a
-matching route SHALL remain visible with routing shown as unavailable. A stale
-registry entry MAY be shown in a separate attention state, but MUST NOT be
-counted or linked as a running process. When no processes are tracked, the page
-SHALL show an explicit empty state.
+SHALL also display their upstream port. Frontend services with a navigation
+target SHALL render as application cards whose whole card is a single link,
+preferring a matching Tailnet URL and falling back to the preferred local
+hostname URL. Frontend services without a navigation target SHALL render as
+unavailable application cards. A frontend with a known workspace/project
+presentation SHALL display its versioned embedded
+illustration and concise product description; other frontends SHALL retain a
+neutral fallback visual without becoming hidden. Backend, infrastructure,
+unclassified, and foreground processes SHALL render below the cards as
+non-navigable summary rows without navigation addresses. Entries SHALL be
+grouped or sorted deterministically. A live frontend service without a matching
+route SHALL remain visible with routing shown as unavailable. A stale registry
+entry MAY be shown in a separate attention state, but MUST NOT be counted or
+linked as a running process. When no processes are tracked, the page SHALL show
+an explicit empty state. Automatic refresh SHALL defer while an interactive
+control has focus and SHALL expose a user-controlled pause/resume action.
 
 The PM listener SHALL remain loopback-only and the dashboard SHALL be
 read-only. An exact hostname listed in `dev.dashboard_hosts` MAY serve the

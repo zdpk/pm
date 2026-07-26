@@ -23,10 +23,94 @@ use std::time::{Duration, Instant};
 
 pub(super) const HOSTNAME: &str = "pm.localhost";
 
-const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; \
+const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; img-src 'self'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; \
      form-action 'none'; frame-ancestors 'none'";
 const TAILSCALE_CACHE_TTL: Duration = Duration::from_secs(10);
 const TAILSCALE_COMMAND_TIMEOUT: Duration = Duration::from_millis(500);
+const DASHBOARD_REFRESH_SCRIPT: &[u8] = br##"(() => {
+  const button = document.querySelector("#refresh-toggle");
+  if (!button) return;
+
+  let paused = false;
+  let timer;
+  const hasInteractiveFocus = () => {
+    const active = document.activeElement;
+    return active && active !== document.body && active !== document.documentElement;
+  };
+  const renderButton = () => {
+    button.hidden = false;
+    button.textContent = paused ? "Resume updates" : "Pause updates";
+    button.setAttribute("aria-pressed", String(paused));
+  };
+  const schedule = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      if (!paused && document.visibilityState === "visible" && !hasInteractiveFocus()) {
+        window.location.reload();
+        return;
+      }
+      schedule();
+    }, 5000);
+  };
+
+  button.addEventListener("click", () => {
+    paused = !paused;
+    renderButton();
+    schedule();
+  });
+  document.addEventListener("focusin", schedule);
+  document.addEventListener("visibilitychange", schedule);
+  renderButton();
+  schedule();
+})();
+"##;
+
+#[derive(Clone, Copy)]
+struct DashboardAsset {
+    path: &'static str,
+    content_type: &'static str,
+    bytes: &'static [u8],
+}
+
+const DASHBOARD_ASSETS: &[DashboardAsset] = &[
+    DashboardAsset {
+        path: "/assets/dashboard/refresh-v1.js",
+        content_type: "text/javascript; charset=utf-8",
+        bytes: DASHBOARD_REFRESH_SCRIPT,
+    },
+    DashboardAsset {
+        path: "/assets/dashboard/i-learn-card-v1.jpg",
+        content_type: "image/jpeg",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/dashboard/i-learn-card-v1.jpg"
+        )),
+    },
+    DashboardAsset {
+        path: "/assets/dashboard/stock-analyzer-card-v1.jpg",
+        content_type: "image/jpeg",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/dashboard/stock-analyzer-card-v1.jpg"
+        )),
+    },
+    DashboardAsset {
+        path: "/assets/dashboard/korion-card-v1.jpg",
+        content_type: "image/jpeg",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/dashboard/korion-card-v1.jpg"
+        )),
+    },
+    DashboardAsset {
+        path: "/assets/dashboard/topclass-card-v1.jpg",
+        content_type: "image/jpeg",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/dashboard/topclass-card-v1.jpg"
+        )),
+    },
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppStatus {
@@ -100,6 +184,12 @@ struct DashboardApp {
     status: AppStatus,
 }
 
+#[derive(Clone, Copy)]
+struct FrontendPresentation {
+    description: &'static str,
+    image_path: Option<&'static str>,
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct DashboardSnapshot {
     apps: Vec<DashboardApp>,
@@ -131,6 +221,9 @@ pub(super) async fn response(
     routes: &RoutesData,
     proxy_port: u16,
 ) -> Response<Full<Bytes>> {
+    if let Some(asset) = dashboard_asset(path) {
+        return dashboard_asset_response(method, asset);
+    }
     if path != "/" {
         return plain_response(
             method,
@@ -191,6 +284,39 @@ pub(super) async fn response(
         foreground_processes::is_running,
     );
     dashboard_snapshot_response(method, &snapshot, proxy_port)
+}
+
+fn dashboard_asset(path: &str) -> Option<DashboardAsset> {
+    DASHBOARD_ASSETS
+        .iter()
+        .copied()
+        .find(|asset| asset.path == path)
+}
+
+fn dashboard_asset_response(method: &Method, asset: DashboardAsset) -> Response<Full<Bytes>> {
+    if method != Method::GET && method != Method::HEAD {
+        return plain_response(
+            method,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "Dashboard is read-only",
+            Some("GET, HEAD"),
+        );
+    }
+
+    let body = if method == Method::HEAD {
+        Bytes::new()
+    } else {
+        Bytes::from_static(asset.bytes)
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, asset.content_type)
+        .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .header(CONTENT_LENGTH, asset.bytes.len().to_string())
+        .header("x-content-type-options", "nosniff")
+        .body(Full::new(body))
+        .expect("valid dashboard asset response")
 }
 
 #[cfg(test)]
@@ -711,13 +837,12 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="5">
   <title>PM Processes</title>
   <style>
     :root {{ color-scheme: dark; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #09090b; color: #f4f4f5; }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; min-height: 100vh; background: radial-gradient(circle at top left, #172554 0, transparent 34rem), #09090b; }}
-    main {{ width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0 80px; }}
+    main {{ width: min(1240px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0 80px; }}
     header {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }}
     .eyebrow {{ margin: 0 0 8px; color: #93c5fd; font: 700 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; }}
     h1 {{ margin: 0; font-size: clamp(34px, 7vw, 64px); line-height: .95; letter-spacing: -.055em; }}
@@ -726,18 +851,24 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     .summary strong {{ color: #fafafa; }}
     .section-heading {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 0 0 14px; }}
     .section-heading h2 {{ margin: 0; font-size: 19px; letter-spacing: -.02em; }}
-    .section-heading > span, .section-heading p {{ margin: 0; color: #71717a; font-size: 12px; }}
+    .section-heading > span, .section-heading p {{ margin: 0; color: #a1a1aa; font-size: 12px; }}
     .section-kicker {{ margin: 0 0 4px !important; color: #60a5fa !important; font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace !important; letter-spacing: .1em; text-transform: uppercase; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; }}
-    .card {{ display: block; min-width: 0; border: 1px solid #27272a; border-radius: 18px; padding: 20px; color: inherit; background: #121216e6; box-shadow: 0 18px 50px #0005; text-decoration: none; }}
+    .grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }}
+    .card {{ display: grid; min-width: 0; min-height: 318px; grid-template-columns: minmax(0, .94fr) minmax(0, 1.06fr); overflow: hidden; border: 1px solid #27272a; border-radius: 18px; padding: 0; color: inherit; background: #111116e8; box-shadow: 0 18px 50px #0005; text-decoration: none; }}
     .card-link {{ cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }}
     .card-link:hover {{ border-color: #3b82f6; box-shadow: 0 20px 54px #0007, 0 0 0 1px #3b82f633; transform: translateY(-2px); }}
     .card-link:focus-visible {{ outline: 3px solid #60a5fa; outline-offset: 3px; border-color: #60a5fa; }}
     .card-unavailable {{ border-style: dashed; }}
+    .card-visual {{ position: relative; min-width: 0; min-height: 100%; overflow: hidden; margin: 0; border-right: 1px solid #27272a; background: radial-gradient(circle at 50% 36%, #1d4ed855, transparent 46%), #0b1020; }}
+    .card-visual img {{ display: block; width: 100%; height: 100%; object-fit: cover; transform: scale(1.01); transition: transform .28s ease; }}
+    .card-link:hover .card-visual img {{ transform: scale(1.035); }}
+    .card-visual-fallback {{ display: grid; place-items: center; color: #3f3f46; font: 700 34px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
+    .card-content {{ display: flex; min-width: 0; flex-direction: column; padding: 20px; }}
     .card-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }}
     .identity {{ min-width: 0; }}
     .project {{ overflow: hidden; color: #a1a1aa; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }}
-    h3 {{ margin: 5px 0 0; font-size: 23px; letter-spacing: -.025em; }}
+    h3 {{ margin: 5px 0 0; font-size: 25px; letter-spacing: -.03em; }}
+    .app-description {{ margin: 13px 0 0; color: #a1a1aa; font-size: 13px; line-height: 1.55; }}
     .badges {{ display: flex; align-items: flex-end; gap: 6px; flex-direction: column; }}
     .status {{ flex: 0 0 auto; border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 750; }}
     .status.running {{ color: #86efac; background: #14532d66; }}
@@ -745,16 +876,16 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     .status.stale {{ color: #d4d4d8; background: #3f3f4666; }}
     .mode {{ border: 1px solid #3f3f46; border-radius: 999px; padding: 4px 8px; color: #a1a1aa; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }}
     .mode.foreground {{ border-color: #1d4ed8; color: #bfdbfe; }}
-    .links {{ display: grid; gap: 8px; margin: 20px 0; }}
-    .url {{ display: flex; min-width: 0; align-items: center; gap: 8px; overflow: hidden; color: #93c5fd; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; text-decoration: none; }}
+    .links {{ display: grid; gap: 7px; margin: 17px 0; }}
+    .url {{ display: flex; min-width: 0; align-items: center; gap: 8px; overflow: hidden; color: #93c5fd; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; text-decoration: none; }}
     .link-kind {{ flex: 0 0 auto; border: 1px solid #3f3f46; border-radius: 5px; padding: 1px 5px; color: #a1a1aa; font: 700 9px/1.5 ui-sans-serif, sans-serif; text-transform: uppercase; letter-spacing: .05em; }}
     .link-value {{ overflow: hidden; text-overflow: ellipsis; }}
     .card-link:hover .url {{ color: #dbeafe; }}
-    .url.unavailable {{ color: #71717a; }}
+    .url.unavailable {{ color: #a1a1aa; }}
     dl {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }}
-    dt {{ color: #71717a; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }}
+    dt {{ color: #a1a1aa; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }}
     dd {{ overflow: hidden; margin: 4px 0 0; color: #d4d4d8; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }}
-    .card-action {{ display: flex; align-items: center; justify-content: space-between; margin-top: 18px; padding-top: 15px; border-top: 1px solid #27272a; color: #bfdbfe; font-size: 12px; font-weight: 700; }}
+    .card-action {{ display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 15px; border-top: 1px solid #27272a; color: #bfdbfe; font-size: 12px; font-weight: 700; }}
     .card-action svg {{ width: 15px; height: 15px; }}
     .card-link:hover .card-action {{ color: #fff; }}
     .supporting {{ margin-top: 40px; }}
@@ -767,14 +898,19 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     .process-row dl {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
     .empty {{ border: 1px dashed #3f3f46; border-radius: 20px; padding: 64px 24px; color: #a1a1aa; text-align: center; background: #12121699; }}
     .empty.compact {{ padding: 42px 24px; }}
-    .empty-icon {{ display: grid; width: 48px; height: 48px; margin: 0 auto 18px; place-items: center; border: 1px solid #3f3f46; border-radius: 14px; color: #71717a; font: 700 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
+    .empty-icon {{ display: grid; width: 48px; height: 48px; margin: 0 auto 18px; place-items: center; border: 1px solid #3f3f46; border-radius: 14px; color: #a1a1aa; font: 700 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }}
     .empty h2 {{ color: #f4f4f5; }}
     .empty p {{ margin-bottom: 0; }}
     code {{ border: 1px solid #3f3f46; border-radius: 6px; padding: 2px 6px; color: #dbeafe; background: #18181b; }}
-    footer {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 24px; color: #71717a; font-size: 12px; }}
+    footer {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 24px; color: #a1a1aa; font-size: 12px; }}
+    .footer-actions {{ display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }}
+    #refresh-toggle {{ appearance: none; border: 0; padding: 0; color: #a1a1aa; background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }}
+    #refresh-toggle:hover, #refresh-toggle:focus-visible, footer a:hover, footer a:focus-visible {{ color: #f4f4f5; }}
+    #refresh-toggle:focus-visible, footer a:focus-visible {{ outline: 2px solid #60a5fa; outline-offset: 3px; border-radius: 2px; }}
     footer a {{ color: #a1a1aa; }}
-    @media (prefers-reduced-motion: reduce) {{ .card-link {{ transition: none; }} .card-link:hover {{ transform: none; }} }}
-    @media (max-width: 760px) {{ main {{ padding-top: 36px; }} header, .section-heading {{ align-items: flex-start; flex-direction: column; }} .summary {{ justify-content: flex-start; }} dl, .process-row dl {{ grid-template-columns: 1fr 1fr; }} .process-row {{ grid-template-columns: 1fr; gap: 12px; }} .process-row dl > div:last-child {{ grid-column: 1 / -1; }} .process-badges {{ justify-content: flex-start; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .card-link, .card-visual img {{ transition: none; }} .card-link:hover {{ transform: none; }} .card-link:hover .card-visual img {{ transform: scale(1.01); }} }}
+    @media (max-width: 1100px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+    @media (max-width: 760px) {{ main {{ padding-top: 36px; }} header, .section-heading, footer {{ align-items: flex-start; flex-direction: column; }} .summary, .footer-actions {{ justify-content: flex-start; }} .card {{ grid-template-columns: 1fr; }} .card-visual {{ min-height: 0; aspect-ratio: 3 / 2; border-right: 0; border-bottom: 1px solid #27272a; }} dl, .process-row dl {{ grid-template-columns: 1fr 1fr; }} .process-row {{ grid-template-columns: 1fr; gap: 12px; }} .process-row dl > div:last-child {{ grid-column: 1 / -1; }} .process-badges {{ justify-content: flex-start; }} }}
   </style>
 </head>
 <body>
@@ -802,10 +938,14 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     </section>
     {supporting_section}
     <footer>
-      <span>Read-only · refreshes every 5 seconds</span>
-      <a href="/">Refresh now</a>
+      <span>Read-only · updates every 5 seconds when idle</span>
+      <span class="footer-actions">
+        <button id="refresh-toggle" type="button" aria-pressed="false" hidden>Pause updates</button>
+        <a href="/">Refresh now</a>
+      </span>
     </footer>
   </main>
+  <script src="/assets/dashboard/refresh-v1.js" defer></script>
 </body>
 </html>"#,
         background = snapshot.background_count,
@@ -821,6 +961,31 @@ fn preferred_navigation(app: &DashboardApp) -> Option<(&'static str, &str)> {
         .or_else(|| app.url.as_deref().map(|url| ("Local", url)))
 }
 
+fn frontend_presentation(workspace: &str, project: &str) -> FrontendPresentation {
+    match (workspace, project) {
+        ("personal", "i-learn") => FrontendPresentation {
+            description: "Cloud certification roadmaps, practice, AI tutoring and readiness.",
+            image_path: Some("/assets/dashboard/i-learn-card-v1.jpg"),
+        },
+        ("personal", "stock-analyzer") => FrontendPresentation {
+            description: "Evidence-backed futures flow and bio-pharma research.",
+            image_path: Some("/assets/dashboard/stock-analyzer-card-v1.jpg"),
+        },
+        ("prod", "korion") => FrontendPresentation {
+            description: "Visual vocabulary learning across Korean, Japanese and English.",
+            image_path: Some("/assets/dashboard/korion-card-v1.jpg"),
+        },
+        ("prod", "topclass") => FrontendPresentation {
+            description: "Global rankings remixed into editorial cards and short-form stories.",
+            image_path: Some("/assets/dashboard/topclass-card-v1.jpg"),
+        },
+        _ => FrontendPresentation {
+            description: "A frontend application managed by PM.",
+            image_path: None,
+        },
+    }
+}
+
 fn render_frontend_card(output: &mut String, app: &DashboardApp) {
     let workspace = escape_html(&app.workspace);
     let project = escape_html(&app.project);
@@ -828,6 +993,7 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
     let status = app.status;
     let mode = app.mode;
     let navigation = preferred_navigation(app);
+    let presentation = frontend_presentation(&app.workspace, &app.project);
 
     let closing_tag = if let Some((destination_kind, destination)) = navigation {
         let destination = escape_html(destination);
@@ -845,9 +1011,22 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
         "</article>"
     };
 
+    if let Some(image_path) = presentation.image_path {
+        let image_path = escape_html(image_path);
+        let _ = write!(
+            output,
+            r#"<figure class="card-visual" aria-hidden="true"><img src="{image_path}" alt="" width="1200" height="800" decoding="async"></figure>"#
+        );
+    } else {
+        output.push_str(
+            r#"<figure class="card-visual card-visual-fallback" aria-hidden="true">PM</figure>"#,
+        );
+    }
+
     let _ = write!(
         output,
-        r#"<div class="card-head">
+        r#"<div class="card-content">
+  <div class="card-head">
     <div class="identity">
       <div class="project">{workspace} / {service}</div>
       <h3>{project}</h3>
@@ -856,11 +1035,13 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
       <span class="status {status_class}">{status_label}</span>
       <span class="mode {mode_class}">{mode_label}</span>
     </div>
-  </div>"#,
+  </div>
+  <p class="app-description">{description}</p>"#,
         status_class = status.css_class(),
         status_label = status.label(),
         mode_class = mode.css_class(),
         mode_label = mode.label(),
+        description = escape_html(presentation.description),
     );
 
     render_addresses(output, app);
@@ -887,6 +1068,7 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
             r#"<span class="card-action">Open via {destination_kind}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3h8v8M13 3 3 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>"#
         );
     }
+    output.push_str("</div>");
     output.push_str(closing_tag);
 }
 
@@ -1363,6 +1545,83 @@ mod tests {
         assert!(!html.contains("https://m5-air.example.ts.net:9443/"));
         assert!(html.contains("Backend &amp; other processes"));
         assert!(html.contains("Open via Tailnet"));
+        assert!(html.contains(r#"class="card-visual card-visual-fallback""#));
+    }
+
+    #[test]
+    fn known_frontends_render_distinct_illustrations_and_descriptions() {
+        let presentations = [
+            (
+                "i-learn",
+                "/assets/dashboard/i-learn-card-v1.jpg",
+                "Cloud certification roadmaps, practice, AI tutoring and readiness.",
+            ),
+            (
+                "stock-analyzer",
+                "/assets/dashboard/stock-analyzer-card-v1.jpg",
+                "Evidence-backed futures flow and bio-pharma research.",
+            ),
+            (
+                "korion",
+                "/assets/dashboard/korion-card-v1.jpg",
+                "Visual vocabulary learning across Korean, Japanese and English.",
+            ),
+            (
+                "topclass",
+                "/assets/dashboard/topclass-card-v1.jpg",
+                "Global rankings remixed into editorial cards and short-form stories.",
+            ),
+        ];
+        let snapshot = DashboardSnapshot {
+            apps: presentations
+                .iter()
+                .map(|(project, _, _)| {
+                    let mut app = dashboard_app(
+                        project,
+                        "front",
+                        Some(PortKind::Frontend),
+                        ProcessMode::Background,
+                        Some(&format!("http://front.{project}.personal.localhost:7100/")),
+                        &[],
+                    );
+                    if matches!(*project, "korion" | "topclass") {
+                        app.workspace = "prod".into();
+                    }
+                    app
+                })
+                .collect(),
+            background_count: presentations.len(),
+            foreground_count: 0,
+            attention_count: 0,
+        };
+
+        let html = render_html(&snapshot, 7100);
+
+        for (_, image_path, description) in presentations {
+            assert!(html.contains(&format!(r#"<img src="{image_path}""#)));
+            assert!(html.contains(description));
+        }
+        assert_eq!(html.matches(r#"<figure class="card-visual""#).count(), 4);
+        assert!(!html.contains(r#"<figure class="card-visual card-visual-fallback""#));
+
+        let wrong_workspace = DashboardSnapshot {
+            apps: vec![dashboard_app(
+                "korion",
+                "front",
+                Some(PortKind::Frontend),
+                ProcessMode::Background,
+                Some("http://front.korion.personal.localhost:7100/"),
+                &[],
+            )],
+            background_count: 1,
+            foreground_count: 0,
+            attention_count: 0,
+        };
+        let wrong_workspace_html = render_html(&wrong_workspace, 7100);
+        assert!(
+            wrong_workspace_html.contains(r#"<figure class="card-visual card-visual-fallback""#)
+        );
+        assert!(!wrong_workspace_html.contains("/assets/dashboard/korion-card-v1.jpg"));
     }
 
     #[test]
@@ -1465,9 +1724,20 @@ mod tests {
             "text/html; charset=utf-8"
         );
         assert_eq!(get.headers().get(CACHE_CONTROL).unwrap(), "no-store");
-        assert!(get.headers().contains_key("content-security-policy"));
+        let content_security_policy = get
+            .headers()
+            .get("content-security-policy")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(content_security_policy.contains("img-src 'self'"));
+        assert!(content_security_policy.contains("script-src 'self'"));
         let get_body = get.into_body().collect().await.unwrap().to_bytes();
-        assert!(String::from_utf8_lossy(&get_body).contains("No PM processes are running"));
+        let get_html = String::from_utf8_lossy(&get_body);
+        assert!(get_html.contains("No PM processes are running"));
+        assert!(get_html.contains(r#"<script src="/assets/dashboard/refresh-v1.js" defer>"#));
+        assert!(!get_html.contains(r#"<meta http-equiv="refresh""#));
+        assert!(!get_html.contains("#71717a"));
 
         let head = dashboard_response(&Method::HEAD, &routes, &services, 7100, |_| true);
         assert_eq!(head.status(), StatusCode::OK);
@@ -1484,6 +1754,65 @@ mod tests {
         let post = response(&Method::POST, "/", &routes, 7100).await;
         assert_eq!(post.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(post.headers().get(ALLOW).unwrap(), "GET, HEAD");
+
+        let asset_path = "/assets/dashboard/i-learn-card-v1.jpg";
+        let asset_get = response(&Method::GET, asset_path, &routes, 7100).await;
+        assert_eq!(asset_get.status(), StatusCode::OK);
+        assert_eq!(asset_get.headers().get(CONTENT_TYPE).unwrap(), "image/jpeg");
+        assert_eq!(
+            asset_get.headers().get(CACHE_CONTROL).unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(
+            asset_get.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+        let asset_length = asset_get
+            .headers()
+            .get(CONTENT_LENGTH)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        let asset_body = asset_get.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(asset_body.len(), asset_length);
+        assert!(asset_length > 1_000);
+
+        let asset_head = response(&Method::HEAD, asset_path, &routes, 7100).await;
+        assert_eq!(asset_head.status(), StatusCode::OK);
+        assert_eq!(
+            asset_head.headers().get(CONTENT_LENGTH).unwrap(),
+            asset_length.to_string().as_str()
+        );
+        assert!(
+            asset_head
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .is_empty()
+        );
+
+        let asset_post = response(&Method::POST, asset_path, &routes, 7100).await;
+        assert_eq!(asset_post.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(asset_post.headers().get(ALLOW).unwrap(), "GET, HEAD");
+
+        let script_get = response(
+            &Method::GET,
+            "/assets/dashboard/refresh-v1.js",
+            &routes,
+            7100,
+        )
+        .await;
+        assert_eq!(script_get.status(), StatusCode::OK);
+        assert_eq!(
+            script_get.headers().get(CONTENT_TYPE).unwrap(),
+            "text/javascript; charset=utf-8"
+        );
+        let script_body = script_get.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(script_body.as_ref(), DASHBOARD_REFRESH_SCRIPT);
 
         let missing = response(&Method::GET, "/missing", &routes, 7100).await;
         assert_eq!(missing.status(), StatusCode::NOT_FOUND);
