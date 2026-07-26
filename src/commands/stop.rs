@@ -78,8 +78,13 @@ fn terminate(pid: u32) -> Result<()> {
         return Ok(());
     }
 
-    // SIGTERM first; give it 2s to land before escalating to SIGKILL.
-    let _ = kill(nix_pid, Signal::SIGTERM);
+    // Services are spawned with setsid(), so the recorded PID is also the
+    // process-group leader. Signal the whole group to avoid orphaning child
+    // processes such as Next.js, cargo-run binaries, or workerd.
+    let process_group = Pid::from_raw(-(pid as i32));
+    if kill(process_group, Signal::SIGTERM).is_err() {
+        let _ = kill(nix_pid, Signal::SIGTERM);
+    }
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_millis(2000) {
         if !svc_state::pid_alive(pid) {
@@ -89,7 +94,9 @@ fn terminate(pid: u32) -> Result<()> {
     }
 
     // Last resort.
-    let _ = kill(nix_pid, Signal::SIGKILL);
+    if kill(process_group, Signal::SIGKILL).is_err() {
+        let _ = kill(nix_pid, Signal::SIGKILL);
+    }
     Ok(())
 }
 
