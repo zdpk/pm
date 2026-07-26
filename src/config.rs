@@ -69,6 +69,10 @@ pub fn services_state_path() -> PathBuf {
     config_dir().join("services.json")
 }
 
+pub fn foreground_processes_path() -> PathBuf {
+    config_dir().join("foreground-processes.json")
+}
+
 pub fn logs_dir() -> PathBuf {
     config_dir().join("logs")
 }

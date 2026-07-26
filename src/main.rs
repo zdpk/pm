@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod config;
 mod error;
+mod foreground_processes;
 mod git;
 mod history;
 mod models;

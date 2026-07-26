@@ -24,10 +24,11 @@
 
 use crate::config::load_ports;
 use crate::error::PmError;
+use crate::foreground_processes::{self, ForegroundProcessState};
 use crate::models::Project;
 use crate::project as proj;
 use crate::state::{detect_current_project, load_state, parse_target, project_path};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
@@ -91,13 +92,64 @@ fn run_legacy(project_name: Option<String>, command: Vec<String>) -> Result<()> 
         return Err(anyhow!("No command provided"));
     }
 
-    let status = Command::new(&command[0])
+    let mut child = Command::new(&command[0])
         .args(&command[1..])
-        .current_dir(project_dir)
+        .current_dir(&project_dir)
         .envs(env)
-        .status()?;
+        .spawn()?;
+
+    let pid = child.id();
+    #[cfg(unix)]
+    let _sigint_guard = ignore_parent_sigint();
+    let program = std::path::Path::new(&command[0])
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&command[0])
+        .to_string();
+    if let Err(error) = foreground_processes::upsert(ForegroundProcessState {
+        workspace,
+        project: project.name,
+        pid,
+        started_at: chrono::Utc::now(),
+        program,
+        start_token: foreground_processes::process_start_token(pid),
+    }) {
+        eprintln!("pm: could not register foreground process {pid}: {error}");
+    }
+
+    let status = child.wait();
+    if let Err(error) = foreground_processes::remove(pid) {
+        eprintln!("pm: could not clear foreground process {pid}: {error}");
+    }
+    let status = status?;
 
     std::process::exit(status.code().unwrap_or(1));
+}
+
+#[cfg(unix)]
+struct ParentSigintGuard(nix::sys::signal::SigAction);
+
+#[cfg(unix)]
+fn ignore_parent_sigint() -> Option<ParentSigintGuard> {
+    use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
+
+    let ignore = SigAction::new(SigHandler::SigIgn, SaFlags::empty(), SigSet::empty());
+    // SAFETY: installing SIG_IGN is process-wide but this CLI is
+    // single-threaded here. The child was already spawned with the default
+    // disposition, so Ctrl-C reaches the child while the parent can wait,
+    // remove its registry entry, and exit with the child's status.
+    unsafe { sigaction(Signal::SIGINT, &ignore) }
+        .ok()
+        .map(ParentSigintGuard)
+}
+
+#[cfg(unix)]
+impl Drop for ParentSigintGuard {
+    fn drop(&mut self) {
+        use nix::sys::signal::{Signal, sigaction};
+        // SAFETY: restores the exact disposition captured by sigaction above.
+        let _ = unsafe { sigaction(Signal::SIGINT, &self.0) };
+    }
 }
 
 // ── Project resolution ──
