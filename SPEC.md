@@ -71,6 +71,7 @@ reverse proxy가 담당합니다. 따라서 기본 포트가 7100이면 URL에�
 |------|------|
 | `ports.json` | 서비스에 할당한 upstream 포트 |
 | `services.json` | PM이 실행하고 관리하는 process registry |
+| `foreground-processes.json` | `pm run --`으로 실행 중인 foreground process registry |
 | `routes.json` | live service로부터 파생한 hostname URL projection |
 
 `pm stop`은 service record와 그 서비스의 canonical/alias route를 모두
@@ -100,15 +101,23 @@ http://localhost:<proxy_port>/       # 편의 alias
 http://127.0.0.1:<proxy_port>/       # 편의 alias
 ```
 
-페이지는 `services.json`을 앱 목록의 원본으로 사용하고 `routes.json`에서
-클릭 가능한 URL을 결합합니다. workspace/project/service, PID, upstream
-port, 시작 시각과 선호 URL을 표시하며, canonical hostname과 짧은 alias가
-함께 있어도 서비스는 한 번만 표시합니다. route가 없는 live service도
-목록에서 숨기지 않고 URL을 unavailable로 표시합니다. 비정상 종료 뒤
-registry에 남은 PID는 실행 중으로 계산하지 않고 stopped 상태로 표시합니다.
+페이지는 `services.json`의 detached service를 Background로,
+`foreground-processes.json`의 실행 중인 `pm run --` child를 Foreground로
+표시하고 `routes.json`에서 클릭 가능한 로컬 URL을 결합합니다.
+workspace/project/service, PID, upstream port, 시작 시각과 선호 URL을
+표시하며, canonical hostname과 짧은 alias가 함께 있어도 서비스는 한 번만
+표시합니다. route가 없는 live service도 목록에서 숨기지 않고 URL을
+unavailable로 표시합니다. 비정상 종료 뒤 registry에 남은 PID는 실행 중으로
+계산하지 않고 stopped 상태로 표시합니다.
+
+Tailscale Serve가 설치되어 있으면 현재 loopback proxy mapping을 읽어
+service port와 일치하는 Tailnet URL을 함께 표시합니다. PM proxy는 계속
+loopback에만 bind하며, `dev.dashboard_hosts`에 등록한 정확한 hostname만
+Tailscale 같은 로컬 reverse proxy를 통한 dashboard Host로 허용합니다.
 
 대시보드는 조회 전용입니다. 앱 시작·중지·재시작, route 변경, shell 실행을
-제공하지 않으며 환경변수, credential, 로그 내용도 노출하지 않습니다.
+제공하지 않으며 환경변수, credential, 로그 내용이나 foreground command
+argument도 노출하지 않습니다.
 
 ## 파일 구조
 

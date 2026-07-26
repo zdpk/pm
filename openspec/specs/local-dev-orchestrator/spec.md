@@ -224,28 +224,33 @@ host is `localhost` or `127.0.0.1` on the same proxy port SHALL serve the same
 page. These dashboard hostnames are reserved and SHALL be handled before normal
 application route lookup.
 
-The dashboard SHALL show every live service started and managed by PM across
-all workspaces and projects. It SHALL use `services.json` as the authoritative
-process list and `routes.json` only to project clickable application URLs. A
-service with multiple hostname aliases SHALL appear once, with one preferred
-clickable URL and without duplicate application cards or rows. Legacy
-foreground commands started with `pm run -- <command>`, shared database
-containers, and arbitrary processes that are not tracked in `services.json`
-SHALL NOT appear as dashboard applications.
+The dashboard SHALL show every live process started and tracked by PM across
+all workspaces and projects. It SHALL use `services.json` for detached
+orchestrator services, `foreground-processes.json` for live legacy commands
+started with `pm run -- <command>`, and `routes.json` only to project clickable
+application URLs. A service with multiple hostname aliases SHALL appear once,
+with one preferred clickable URL and without duplicate application cards or
+rows. Shared database containers and arbitrary processes that are not tracked
+by either process registry SHALL NOT appear as dashboard applications.
 
-At minimum, each application entry SHALL display workspace, project, service,
-PID, upstream port, start time, and its preferred hostname URL when one is
-available. Entries SHALL be grouped or sorted deterministically by workspace,
-project, and service. A live service without a matching route SHALL remain
-visible with routing shown as unavailable. A stale registry entry MAY be shown
-in a separate attention state, but MUST NOT be counted or linked as a running
-application. When no services are tracked, the page SHALL show an explicit
-empty state.
+At minimum, each entry SHALL display workspace, project, background/foreground
+mode, PID, start time, and a service or executable name. Background services
+SHALL also display their upstream port and preferred hostname URL when one is
+available. Entries SHALL be grouped or sorted deterministically. A live
+background service without a matching route SHALL remain visible with routing
+shown as unavailable. A stale registry entry MAY be shown in a separate
+attention state, but MUST NOT be counted or linked as a running process. When
+no processes are tracked, the page SHALL show an explicit empty state.
 
-The dashboard SHALL be loopback-only and read-only. It MUST NOT expose start,
+The PM listener SHALL remain loopback-only and the dashboard SHALL be
+read-only. An exact hostname listed in `dev.dashboard_hosts` MAY serve the
+dashboard when a trusted local reverse proxy forwards that Host to the
+loopback listener; arbitrary or wildcard external hosts SHALL NOT match. The
+dashboard MAY discover Tailscale Serve loopback proxy mappings and show the
+corresponding Tailnet URL on a matching service card. It MUST NOT expose start,
 stop, restart, route mutation, shell execution, environment values, database
-credentials, or log contents. All registry-derived strings SHALL be HTML
-escaped before rendering.
+credentials, log contents, or foreground command arguments. All
+registry-derived strings SHALL be HTML escaped before rendering.
 
 #### Scenario: dashboard lists applications across projects
 - **GIVEN** `work/api/back` and `personal/blog/front` are live in `services.json`
@@ -262,6 +267,25 @@ escaped before rendering.
 #### Scenario: direct loopback hosts serve the dashboard
 - **WHEN** the user opens `http://localhost:7100/` or `http://127.0.0.1:7100/`
 - **THEN** the same read-only applications dashboard is returned
+
+#### Scenario: exact Tailnet dashboard host is allowed
+- **GIVEN** `dev.dashboard_hosts` contains `devbox.example.ts.net`
+- **AND** a local Tailnet reverse proxy forwards that Host to `127.0.0.1:7100`
+- **WHEN** the user opens the configured Tailnet HTTPS URL
+- **THEN** the same read-only dashboard is returned
+- **AND** a different Tailnet hostname is handled as an unknown app route
+
+#### Scenario: foreground command is visible without sensitive arguments
+- **GIVEN** `pm run -- pnpm worker --token secret` has a live child process
+- **WHEN** the dashboard is rendered
+- **THEN** the process is labeled Foreground with its project, executable name, PID, and start time
+- **AND** neither `--token` nor `secret` appears in the dashboard or registry
+
+#### Scenario: Tailnet service links follow active Serve mappings
+- **GIVEN** Tailscale Serve proxies a Tailnet HTTPS URL to a live PM service's loopback port
+- **WHEN** the dashboard is rendered
+- **THEN** that service card contains the Tailnet HTTPS URL
+- **AND** mappings to non-loopback targets are ignored
 
 #### Scenario: route projection is missing
 - **GIVEN** a live service exists in `services.json` but has no matching entry in `routes.json`

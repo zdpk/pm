@@ -49,6 +49,7 @@ fn run_inner() -> Result<()> {
     let config = load_config()?;
     let proxy_port = config.dev.proxy_port;
     let control_port = config.dev.control_port;
+    let dashboard_hosts = config.dev.dashboard_hosts;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -56,7 +57,7 @@ fn run_inner() -> Result<()> {
 
     runtime.block_on(async move {
         let shutdown = Arc::new(Notify::new());
-        let proxy_task = reverse::serve(proxy_port, shutdown.clone());
+        let proxy_task = reverse::serve(proxy_port, dashboard_hosts, shutdown.clone());
         let control_task = control::serve(control_port, shutdown.clone());
 
         tokio::select! {

@@ -403,6 +403,31 @@ The configured `dev.proxy_port` replaces `7100`. `http://localhost:7100/` and
 route health but intentionally exposes no environment values, credentials,
 logs, or lifecycle controls.
 
+Detached orchestrator services are labeled **Background**. A legacy
+`pm run -- <command>` invocation is registered only while its child is alive
+and is labeled **Foreground**; PM stores the executable name but never command
+arguments. When Tailscale Serve is installed, the dashboard reads its current
+loopback proxy mappings and adds matching Tailnet links to service cards.
+
+PM always binds the dashboard to loopback. To put a trusted Tailnet reverse
+proxy in front of it, allow the machine's exact MagicDNS hostname and expose the
+proxy port with Tailscale Serve:
+
+```json
+{
+  "dev": {
+    "dashboard_hosts": ["my-machine.example.ts.net"]
+  }
+}
+```
+
+```bash
+tailscale serve --bg --https=9443 http://127.0.0.1:7100
+```
+
+Wildcard Tailnet hosts are not accepted; only exact configured hostnames are
+treated as dashboard requests.
+
 ### Docker auto-start
 
 `pm run` auto-creates and starts:

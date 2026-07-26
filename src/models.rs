@@ -57,6 +57,11 @@ pub struct DevConfig {
 
     #[serde(default = "default_redis_image")]
     pub redis_image: String,
+
+    /// Additional exact hostnames that may serve the read-only dashboard.
+    /// Intended for trusted loopback reverse proxies such as Tailscale Serve.
+    #[serde(default)]
+    pub dashboard_hosts: Vec<String>,
 }
 
 fn default_auto_start_docker() -> bool {
@@ -87,6 +92,7 @@ impl Default for DevConfig {
             control_port: default_control_port(),
             postgres_image: default_postgres_image(),
             redis_image: default_redis_image(),
+            dashboard_hosts: Vec::new(),
         }
     }
 }

@@ -22,7 +22,7 @@ use std::time::SystemTime;
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, RwLock};
 
-pub async fn serve(port: u16, shutdown: Arc<Notify>) -> Result<()> {
+pub async fn serve(port: u16, dashboard_hosts: Vec<String>, shutdown: Arc<Notify>) -> Result<()> {
     let addr = format!("127.0.0.1:{port}");
     let listener = TcpListener::bind(&addr).await?;
     let cache = Arc::new(RwLock::new(RoutesCache::new()));
@@ -48,11 +48,13 @@ pub async fn serve(port: u16, shutdown: Arc<Notify>) -> Result<()> {
         };
 
         let cache = cache.clone();
+        let dashboard_hosts = dashboard_hosts.clone();
         let io = TokioIo::new(stream);
         tokio::spawn(async move {
             let svc = service_fn(move |req: Request<Incoming>| {
                 let cache = cache.clone();
-                async move { Ok::<_, Infallible>(handle(req, cache, port).await) }
+                let dashboard_hosts = dashboard_hosts.clone();
+                async move { Ok::<_, Infallible>(handle(req, cache, port, &dashboard_hosts).await) }
             });
             if let Err(e) = http1::Builder::new()
                 .serve_connection(io, svc)
@@ -74,6 +76,7 @@ async fn handle(
     req: Request<Incoming>,
     cache: Arc<RwLock<RoutesCache>>,
     proxy_port: u16,
+    dashboard_hosts: &[String],
 ) -> Response<Full<Bytes>> {
     let host_header = req
         .headers()
@@ -88,13 +91,13 @@ async fn handle(
         }
     };
 
-    if dashboard::is_dashboard_host(&host) {
+    if dashboard::is_dashboard_host(&host, dashboard_hosts) {
         let routes = {
             let mut guard = cache.write().await;
             guard.refresh_if_changed();
             guard.snapshot()
         };
-        return dashboard::response(req.method(), req.uri().path(), &routes, proxy_port);
+        return dashboard::response(req.method(), req.uri().path(), &routes, proxy_port).await;
     }
 
     let upstream_port = {
@@ -122,10 +125,7 @@ async fn handle(
     }
 }
 
-async fn forward(
-    req: Request<Incoming>,
-    upstream_port: u16,
-) -> Result<Response<Full<Bytes>>> {
+async fn forward(req: Request<Incoming>, upstream_port: u16) -> Result<Response<Full<Bytes>>> {
     use hyper::client::conn::http1::handshake;
 
     let stream = tokio::net::TcpStream::connect(("127.0.0.1", upstream_port)).await?;
@@ -233,9 +233,6 @@ mod tests {
             super::super::dashboard_url(7100),
             "http://pm.localhost:7100/"
         );
-        assert_eq!(
-            super::super::dashboard_url(80),
-            "http://pm.localhost/"
-        );
+        assert_eq!(super::super::dashboard_url(80), "http://pm.localhost/");
     }
 }
