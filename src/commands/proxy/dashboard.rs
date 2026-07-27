@@ -172,6 +172,30 @@ impl AppStatus {
         self != Self::Stale
     }
 
+    fn process_label(self) -> &'static str {
+        if self.is_process_running() {
+            "Running"
+        } else {
+            "Stopped"
+        }
+    }
+
+    fn process_css_class(self) -> &'static str {
+        if self.is_process_running() {
+            "running"
+        } else {
+            "stopped"
+        }
+    }
+
+    fn route_warning_label(self) -> Option<&'static str> {
+        match self {
+            Self::RouteMissing => Some("Route missing"),
+            Self::RouteMismatch => Some("Route mismatch"),
+            Self::Running | Self::Stale => None,
+        }
+    }
+
     fn has_healthy_route(self) -> bool {
         self == Self::Running
     }
@@ -884,6 +908,7 @@ fn render_html(snapshot: &DashboardSnapshot, proxy_port: u16) -> String {
     .status::before {{ width: 7px; height: 7px; border-radius: 50%; background: currentColor; content: ""; }}
     .status.running {{ color: #315d42; }}
     .status.warning {{ color: #7a5510; }}
+    .status.stopped {{ color: #6b6961; }}
     .status.stale {{ color: #6b6961; }}
     .mode {{ border: 0; border-bottom: 1px solid currentColor; border-radius: 0; padding: 2px 0; color: #4f4e47; font: 700 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .06em; }}
     .mode.foreground {{ color: #315c8a; }}
@@ -1019,6 +1044,10 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
         None => app.project.as_str(),
     };
     let display_name = escape_html(display_name);
+    let route_warning = status
+        .route_warning_label()
+        .map(|label| format!(r#"<span class="status warning">{label}</span>"#))
+        .unwrap_or_default();
 
     let closing_tag = if let Some((destination_kind, destination)) = navigation {
         let destination = escape_html(destination);
@@ -1057,13 +1086,15 @@ fn render_frontend_card(output: &mut String, app: &DashboardApp) {
       <h3>{display_name}</h3>
     </div>
     <div class="badges">
-      <span class="status {status_class}">{status_label}</span>
+      <span class="status {process_status_class}">{process_status_label}</span>
+      {route_warning}
       <span class="mode {mode_class}">{mode_label}</span>
     </div>
   </div>
   <p class="app-description">{description}</p>"#,
-        status_class = status.css_class(),
-        status_label = status.label(),
+        process_status_class = status.process_css_class(),
+        process_status_label = status.process_label(),
+        route_warning = route_warning,
         mode_class = mode.css_class(),
         mode_label = mode.label(),
         description = escape_html(presentation.description),
@@ -1571,6 +1602,86 @@ mod tests {
         assert!(html.contains("Backend &amp; other processes"));
         assert!(html.contains("Open via Tailnet"));
         assert!(html.contains(r#"class="card-visual card-visual-fallback""#));
+    }
+
+    #[test]
+    fn frontend_cards_separate_process_state_from_route_health() {
+        let mut running = dashboard_app(
+            "running",
+            "front",
+            Some(PortKind::Frontend),
+            ProcessMode::Background,
+            Some("http://front.running.personal.localhost:7100/"),
+            &[],
+        );
+        running.status = AppStatus::Running;
+
+        let mut route_missing = dashboard_app(
+            "missing",
+            "front",
+            Some(PortKind::Frontend),
+            ProcessMode::Background,
+            None,
+            &[],
+        );
+        route_missing.status = AppStatus::RouteMissing;
+
+        let mut route_mismatch = dashboard_app(
+            "mismatch",
+            "front",
+            Some(PortKind::Frontend),
+            ProcessMode::Background,
+            None,
+            &[],
+        );
+        route_mismatch.status = AppStatus::RouteMismatch;
+
+        let mut stopped = dashboard_app(
+            "stopped",
+            "front",
+            Some(PortKind::Frontend),
+            ProcessMode::Background,
+            None,
+            &[],
+        );
+        stopped.status = AppStatus::Stale;
+
+        let snapshot = DashboardSnapshot {
+            apps: vec![running, route_missing, route_mismatch, stopped],
+            background_count: 3,
+            foreground_count: 0,
+            attention_count: 3,
+        };
+
+        let html = render_html(&snapshot, 7100);
+
+        assert_eq!(
+            html.matches(r#"<span class="status running">Running</span>"#)
+                .count(),
+            3
+        );
+        assert_eq!(
+            html.matches(r#"<span class="status stopped">Stopped</span>"#)
+                .count(),
+            1
+        );
+        assert_eq!(
+            html.matches(r#"<span class="status warning">Route missing</span>"#)
+                .count(),
+            1
+        );
+        assert_eq!(
+            html.matches(r#"<span class="status warning">Route mismatch</span>"#)
+                .count(),
+            1
+        );
+        assert_eq!(
+            html.matches(r#"<span class="mode background">Background</span>"#)
+                .count(),
+            4
+        );
+        assert!(html.contains("<strong>3</strong> need attention"));
+        assert!(!html.contains("Process stopped"));
     }
 
     #[test]
