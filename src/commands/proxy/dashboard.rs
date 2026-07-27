@@ -87,6 +87,14 @@ const DASHBOARD_ASSETS: &[DashboardAsset] = &[
         )),
     },
     DashboardAsset {
+        path: "/assets/dashboard/social-manager-card-v2.jpg",
+        content_type: "image/jpeg",
+        bytes: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/dashboard/social-manager-card-v2.jpg"
+        )),
+    },
+    DashboardAsset {
         path: "/assets/dashboard/stock-analyzer-card-v2.jpg",
         content_type: "image/jpeg",
         bytes: include_bytes!(concat!(
@@ -1004,6 +1012,11 @@ fn frontend_presentation(workspace: &str, project: &str, service: &str) -> Front
             description: "Cloud certification roadmaps, practice, AI tutoring and readiness.",
             image_path: Some("/assets/dashboard/i-learn-card-v2.jpg"),
         },
+        ("personal", "social-manager", "front") => FrontendPresentation {
+            display_name: Some("Social Manager"),
+            description: "Multi-brand publishing operations, account health and delivery queues across connected social channels.",
+            image_path: Some("/assets/dashboard/social-manager-card-v2.jpg"),
+        },
         ("personal", "stock-analyzer", "front") => FrontendPresentation {
             display_name: None,
             description: "Evidence-backed futures flow and bio-pharma research.",
@@ -1697,6 +1710,14 @@ mod tests {
             ),
             (
                 "personal",
+                "social-manager",
+                "front",
+                "Social Manager",
+                "/assets/dashboard/social-manager-card-v2.jpg",
+                "Multi-brand publishing operations, account health and delivery queues across connected social channels.",
+            ),
+            (
+                "personal",
                 "stock-analyzer",
                 "front",
                 "stock-analyzer",
@@ -1758,8 +1779,8 @@ mod tests {
             assert!(html.contains(&format!(r#"<img src="{image_path}""#)));
             assert!(html.contains(description));
         }
-        assert_eq!(html.matches(r#"<figure class="card-visual""#).count(), 5);
-        assert_eq!(html.matches(r#"width="1024" height="1024""#).count(), 5);
+        assert_eq!(html.matches(r#"<figure class="card-visual""#).count(), 6);
+        assert_eq!(html.matches(r#"width="1024" height="1024""#).count(), 6);
         assert!(!html.contains(r#"<figure class="card-visual card-visual-fallback""#));
 
         let wrong_workspace = DashboardSnapshot {
@@ -1942,7 +1963,7 @@ mod tests {
         assert_eq!(post.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(post.headers().get(ALLOW).unwrap(), "GET, HEAD");
 
-        let asset_path = "/assets/dashboard/korion-studio-card-v2.jpg";
+        let asset_path = "/assets/dashboard/social-manager-card-v2.jpg";
         let asset_get = response(&Method::GET, asset_path, &routes, 7100).await;
         assert_eq!(asset_get.status(), StatusCode::OK);
         assert_eq!(asset_get.headers().get(CONTENT_TYPE).unwrap(), "image/jpeg");
