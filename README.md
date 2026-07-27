@@ -403,6 +403,11 @@ The configured `dev.proxy_port` replaces `7100`. `http://localhost:7100/` and
 route health but intentionally exposes no environment values, credentials,
 logs, or lifecycle controls.
 
+The entrance is a shadcn/ui React application compiled from `dashboard-ui/`
+and embedded in the PM binary, so it uses the existing proxy without another
+runtime server or port. Rust remains the process-data authority and exposes the
+versioned, read-only `/api/dashboard` JSON endpoint to the embedded client.
+
 Detached orchestrator services are labeled **Background**. A legacy
 `pm run -- <command>` invocation is registered only while its child is alive
 and is labeled **Foreground**; PM stores the executable name but never command
@@ -438,6 +443,14 @@ tailscale serve --bg --https=9443 http://127.0.0.1:7100
 
 Wildcard Tailnet hosts are not accepted; only exact configured hostnames are
 treated as dashboard requests.
+
+Rebuild or verify the embedded dashboard bundle with:
+
+```bash
+make dashboard-build
+make dashboard-test
+make dashboard-verify
+```
 
 ### Docker auto-start
 

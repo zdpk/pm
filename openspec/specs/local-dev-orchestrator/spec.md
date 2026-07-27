@@ -224,6 +224,13 @@ host is `localhost` or `127.0.0.1` on the same proxy port SHALL serve the same
 page. These dashboard hostnames are reserved and SHALL be handled before normal
 application route lookup.
 
+The dashboard UI SHALL be implemented as a shadcn/ui React application whose
+compiled static assets are embedded in the PM binary and served by the same
+loopback proxy. It SHALL NOT require a second runtime server or stable port.
+The client SHALL obtain its data from the read-only `GET /api/dashboard`
+endpoint. That response SHALL use an explicitly versioned, dashboard-specific
+JSON schema and SHALL NOT serialize the raw process registries.
+
 The dashboard SHALL show every live process started and tracked by PM across
 all workspaces and projects. It SHALL use `services.json` for detached
 orchestrator services, `foreground-processes.json` for live legacy commands
@@ -262,7 +269,8 @@ corresponding Tailnet URL on a matching process entry. A frontend card SHALL
 prefer that Tailnet URL as its navigation target. It MUST NOT expose start, stop,
 restart, route mutation, shell execution, environment values, database
 credentials, log contents, or foreground command arguments. All
-registry-derived strings SHALL be HTML escaped before rendering.
+registry-derived strings SHALL be rendered as text and MUST NOT be injected as
+HTML.
 
 #### Scenario: dashboard lists applications across projects
 - **GIVEN** `work/api/back` and `personal/blog/front` are live in `services.json`
@@ -280,6 +288,13 @@ registry-derived strings SHALL be HTML escaped before rendering.
 #### Scenario: direct loopback hosts serve the dashboard
 - **WHEN** the user opens `http://localhost:7100/` or `http://127.0.0.1:7100/`
 - **THEN** the same read-only applications dashboard is returned
+
+#### Scenario: dashboard data API is versioned and read-only
+- **WHEN** the client requests `GET /api/dashboard`
+- **THEN** the response contains `schema_version: 1` and the projected dashboard entries
+- **AND** it contains no environment values, credentials, logs, or command arguments
+- **AND** `HEAD` returns the same metadata without a body
+- **AND** mutation methods are rejected
 
 #### Scenario: exact Tailnet dashboard host is allowed
 - **GIVEN** `dev.dashboard_hosts` contains `devbox.example.ts.net`
