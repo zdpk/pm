@@ -5,13 +5,45 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  dashboard_ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.16.0
+          package_json_file: dashboard-ui/package.json
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+          cache-dependency-path: dashboard-ui/pnpm-lock.yaml
+
+      - name: Install dashboard dependencies
+        run: pnpm --dir dashboard-ui install --frozen-lockfile
+
+      - name: Test dashboard
+        run: pnpm --dir dashboard-ui test
+
+      - name: Lint dashboard
+        run: pnpm --dir dashboard-ui lint
+
+      - name: Build dashboard
+        run: pnpm --dir dashboard-ui build
+
+      - name: Verify embedded dashboard assets
+        run: git diff --exit-code -- dashboard-ui/dist
+
   build:
+    needs: dashboard_ui
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +110,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
